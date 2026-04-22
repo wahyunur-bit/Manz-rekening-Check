@@ -22,7 +22,7 @@ def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
         return {"error": "API key tidak ada"}
 
-    url = "https://api.api.co.id/v1/validation/bank"
+    url = "https://api.co.id/v1/validation/bank"
 
     try:
         response = requests.get(
