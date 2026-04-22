@@ -3,12 +3,30 @@ import requests
 import pandas as pd
 import os
 import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 app = Flask(__name__)
 
 API_KEY = os.environ.get("APICOID_API_KEY")
+print("API KEY:", "ADA" if API_KEY else "TIDAK ADA")
 
-print("API KEY:", API_KEY if API_KEY else "TIDAK ADA")
+
+# 🔥 SESSION + RETRY (ANTI CONNECTION RESET)
+def create_session():
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    return session
+
+
+session = create_session()
+
 
 def validasi_format_rekening(rekening):
     if not rekening.isdigit():
@@ -25,16 +43,15 @@ def cek_rekening(bank_code, account_number, account_name):
     url = "https://api.co.id/v1/validation/bank"
 
     try:
-        response = requests.get(
+        response = session.get(
             url,
             headers={
-                # ⛔ kalau ini gagal nanti kita ganti ke Authorization
-                "x-api-co-id": API_KEY
+                "Authorization": f"Bearer {API_KEY}"
             },
             params={
                 "bank_code": bank_code.lower(),
-                "account_number": account_number,
-                "account_name": account_name
+                "account_number": account_number
+                # ⛔ sengaja ga kirim nama dulu biar aman
             },
             timeout=15
         )
@@ -90,6 +107,7 @@ def upload():
             rekening = str(row["rekening"]).strip()
             bank = str(row["bank"]).strip()
 
+            # FIX angka jadi string
             if rekening.endswith(".0"):
                 rekening = rekening[:-2]
 
@@ -99,7 +117,7 @@ def upload():
                 results.append({
                     "nama": nama,
                     "rekening": rekening,
-                    "bank": bank,
+                    "bank": bank.upper(),
                     "nama_bank": "-",
                     "score": 0,
                     "status": "FORMAT SALAH",
@@ -109,12 +127,11 @@ def upload():
 
             res = cek_rekening(bank, rekening, nama)
 
-            # HANDLE ERROR API
             if "error" in res:
                 results.append({
                     "nama": nama,
                     "rekening": rekening,
-                    "bank": bank,
+                    "bank": bank.upper(),
                     "nama_bank": "-",
                     "score": 0,
                     "status": "ERROR",
@@ -150,7 +167,7 @@ def upload():
                 "keterangan": ket
             })
 
-            time.sleep(0.2)
+            time.sleep(0.3)  # biar ga kena rate limit
 
         return jsonify(results)
 
