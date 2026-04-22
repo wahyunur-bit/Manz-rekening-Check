@@ -5,13 +5,11 @@ import os
 import time
 from dotenv import load_dotenv
 
-# ✅ Optional (buat local aja, di Railway aman walau ga ada)
 load_dotenv()
 
 app = Flask(__name__)
 
-# ✅ Ambil dari Railway (utama) + fallback .env
-API_KEY = os.environ.get("XENDIT_API_KEY")
+API_KEY = os.environ.get("APICOID_API_KEY")
 
 print("API KEY TERBACA:", "ADA" if API_KEY else "TIDAK ADA")
 
@@ -22,18 +20,22 @@ def validasi_format_rekening(rekening):
         return False, "Panjang nomor rekening tidak wajar"
     return True, ""
 
-def cek_rekening(bank_code, account_number):
+def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
         return {"error": "API key tidak ditemukan"}
 
-    url = "https://api.xendit.co/bank_accounts/inquiries"
+    url = "https://api.api.co.id/v1/validation/bank"
+
     try:
-        response = requests.post(
+        response = requests.get(
             url,
-            auth=(API_KEY, ""),
-            json={
-                "bank_code": bank_code,
-                "account_number": account_number
+            headers={
+                "x-api-co-id": API_KEY
+            },
+            params={
+                "bank_code": bank_code.lower(),   # API.co.id pakai lowercase
+                "account_number": account_number,
+                "account_name": account_name
             },
             timeout=10
         )
@@ -60,7 +62,7 @@ def upload():
         print("UPLOAD HIT")
 
         if not API_KEY:
-            return jsonify({"error": "XENDIT_API_KEY belum diset di Railway"}), 500
+            return jsonify({"error": "APICOID_API_KEY belum diset"}), 500
 
         if "file" not in request.files:
             return jsonify({"error": "File tidak ditemukan"}), 400
@@ -88,41 +90,51 @@ def upload():
             if rekening.endswith(".0"):
                 rekening = rekening[:-2]
 
-            bank = str(row["bank"]).strip().upper()
+            bank = str(row["bank"]).strip()
 
             valid, pesan = validasi_format_rekening(rekening)
             if not valid:
                 results.append({
                     "nama": nama,
                     "rekening": rekening,
-                    "bank": bank,
+                    "bank": bank.upper(),
                     "nama_bank": "",
+                    "score": "",
                     "status": "FORMAT SALAH",
                     "keterangan": pesan
                 })
                 continue
 
-            res = cek_rekening(bank, rekening)
-            nama_bank = res.get("account_holder_name", "")
+            # Kirim nama ke API untuk fuzzy matching
+            res = cek_rekening(bank, rekening, nama)
 
-            if not nama_bank:
-                status = "INVALID"
-                keterangan = "Rekening tidak ditemukan"
-            elif nama.upper() == nama_bank.upper():
+            is_valid = res.get("is_valid", False)
+            score = res.get("score", 0)
+            nama_termasked = res.get("name", "")
+            note = res.get("note", "")
+
+            if not res or "error" in res:
+                status = "ERROR"
+                keterangan = "Gagal menghubungi API"
+            elif is_valid and score >= 9.0:
                 status = "MATCH"
-                keterangan = "Nama sesuai"
-            elif nama.upper() in nama_bank.upper():
+                keterangan = f"Nama sesuai (score: {score})"
+            elif is_valid and score >= 7.0:
                 status = "MIRIP"
-                keterangan = "Nama mirip"
+                keterangan = f"Nama mirip (score: {score})"
+            elif note == "Name was not returned":
+                status = "INVALID"
+                keterangan = "Bank tidak mengembalikan nama rekening"
             else:
                 status = "SALAH"
-                keterangan = f"Nama di bank: {nama_bank}"
+                keterangan = f"Nama tidak cocok (score: {score})"
 
             results.append({
                 "nama": nama,
                 "rekening": rekening,
-                "bank": bank,
-                "nama_bank": nama_bank,
+                "bank": bank.upper(),
+                "nama_bank": nama_termasked or "-",
+                "score": score,
                 "status": status,
                 "keterangan": keterangan
             })
