@@ -3,26 +3,24 @@ import requests
 import pandas as pd
 import os
 import time
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 
 API_KEY = os.environ.get("APICOID_API_KEY")
 
-print("API KEY TERBACA:", "ADA" if API_KEY else "TIDAK ADA")
+print("API KEY:", API_KEY if API_KEY else "TIDAK ADA")
 
 def validasi_format_rekening(rekening):
     if not rekening.isdigit():
-        return False, "Nomor rekening harus berupa angka"
+        return False, "Nomor rekening harus angka"
     if len(rekening) < 6 or len(rekening) > 20:
-        return False, "Panjang nomor rekening tidak wajar"
+        return False, "Panjang tidak wajar"
     return True, ""
+
 
 def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
-        return {"error": "API key tidak ditemukan"}
+        return {"error": "API key tidak ada"}
 
     url = "https://api.api.co.id/v1/validation/bank"
 
@@ -30,116 +28,129 @@ def cek_rekening(bank_code, account_number, account_name):
         response = requests.get(
             url,
             headers={
+                # ⛔ kalau ini gagal nanti kita ganti ke Authorization
                 "x-api-co-id": API_KEY
             },
             params={
-                "bank_code": bank_code.lower(),   # API.co.id pakai lowercase
+                "bank_code": bank_code.lower(),
                 "account_number": account_number,
                 "account_name": account_name
             },
-            timeout=10
+            timeout=15
         )
 
+        print("====== DEBUG API ======")
         print("STATUS:", response.status_code)
-        print("RESPONSE:", response.text)
+        print("TEXT:", response.text)
 
         if response.status_code != 200:
-            return {}
+            return {"error": response.text}
 
-        return response.json()
+        try:
+            return response.json()
+        except:
+            return {"error": "Response bukan JSON"}
 
     except Exception as e:
-        print("ERROR API:", e)
-        return {}
+        print("ERROR REQUEST:", e)
+        return {"error": str(e)}
+
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        print("UPLOAD HIT")
-
         if not API_KEY:
-            return jsonify({"error": "APICOID_API_KEY belum diset"}), 500
+            return jsonify({"error": "API KEY BELUM DISET"}), 500
 
         if "file" not in request.files:
-            return jsonify({"error": "File tidak ditemukan"}), 400
+            return jsonify({"error": "File tidak ada"}), 400
 
         file = request.files["file"]
 
         try:
             df = pd.read_excel(file)
-        except Exception:
-            return jsonify({"error": "File Excel tidak valid"}), 400
+        except:
+            return jsonify({"error": "File Excel rusak"}), 400
 
-        df.columns = [col.lower().strip() for col in df.columns]
+        df.columns = [c.lower().strip() for c in df.columns]
 
-        required_cols = ["nama", "rekening", "bank"]
-        for col in required_cols:
+        for col in ["nama", "rekening", "bank"]:
             if col not in df.columns:
-                return jsonify({"error": f"Kolom '{col}' tidak ditemukan"}), 400
+                return jsonify({"error": f"Kolom {col} tidak ada"}), 400
 
         results = []
 
         for _, row in df.iterrows():
             nama = str(row["nama"]).strip()
             rekening = str(row["rekening"]).strip()
+            bank = str(row["bank"]).strip()
 
             if rekening.endswith(".0"):
                 rekening = rekening[:-2]
 
-            bank = str(row["bank"]).strip()
+            valid, msg = validasi_format_rekening(rekening)
 
-            valid, pesan = validasi_format_rekening(rekening)
             if not valid:
                 results.append({
                     "nama": nama,
                     "rekening": rekening,
-                    "bank": bank.upper(),
-                    "nama_bank": "",
-                    "score": "",
+                    "bank": bank,
+                    "nama_bank": "-",
+                    "score": 0,
                     "status": "FORMAT SALAH",
-                    "keterangan": pesan
+                    "keterangan": msg
                 })
                 continue
 
-            # Kirim nama ke API untuk fuzzy matching
             res = cek_rekening(bank, rekening, nama)
+
+            # HANDLE ERROR API
+            if "error" in res:
+                results.append({
+                    "nama": nama,
+                    "rekening": rekening,
+                    "bank": bank,
+                    "nama_bank": "-",
+                    "score": 0,
+                    "status": "ERROR",
+                    "keterangan": res["error"]
+                })
+                continue
 
             is_valid = res.get("is_valid", False)
             score = res.get("score", 0)
-            nama_termasked = res.get("name", "")
+            nama_bank = res.get("name", "-")
             note = res.get("note", "")
 
-            if not res or "error" in res:
-                status = "ERROR"
-                keterangan = "Gagal menghubungi API"
-            elif is_valid and score >= 9.0:
+            if is_valid and score >= 9:
                 status = "MATCH"
-                keterangan = f"Nama sesuai (score: {score})"
-            elif is_valid and score >= 7.0:
+                ket = f"Match (score {score})"
+            elif is_valid and score >= 7:
                 status = "MIRIP"
-                keterangan = f"Nama mirip (score: {score})"
+                ket = f"Mirip (score {score})"
             elif note == "Name was not returned":
                 status = "INVALID"
-                keterangan = "Bank tidak mengembalikan nama rekening"
+                ket = "Bank tidak kirim nama"
             else:
                 status = "SALAH"
-                keterangan = f"Nama tidak cocok (score: {score})"
+                ket = f"Tidak cocok (score {score})"
 
             results.append({
                 "nama": nama,
                 "rekening": rekening,
                 "bank": bank.upper(),
-                "nama_bank": nama_termasked or "-",
+                "nama_bank": nama_bank,
                 "score": score,
                 "status": status,
-                "keterangan": keterangan
+                "keterangan": ket
             })
 
-            time.sleep(0.3)
+            time.sleep(0.2)
 
         return jsonify(results)
 
@@ -149,5 +160,4 @@ def upload():
 
 
 if __name__ == "__main__":
-    print("APP STARTED")
     app.run(host="0.0.0.0", port=5000)
