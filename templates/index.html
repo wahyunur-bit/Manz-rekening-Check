@@ -4,412 +4,471 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Validasi Rekening Bank</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --border: #2a2d3a;
-      --text: #e8eaf0;
-      --muted: #6b7080;
-      --accent: #4f8cff;
-      --match: #22c55e;
-      --mirip: #f59e0b;
-      --salah: #ef4444;
-      --invalid: #6b7080;
-      --format: #a855f7;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'IBM Plex Sans', sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: 'Segoe UI', sans-serif;
       min-height: 100vh;
-      padding: 40px 20px;
+      padding: 32px 16px;
     }
 
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
+    .container { max-width: 860px; margin: 0 auto; }
 
-    header {
-      margin-bottom: 40px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 24px;
-    }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    h1 span { color: #60a5fa; }
+    .subtitle { color: #64748b; font-size: 0.875rem; margin-bottom: 24px; }
 
-    header h1 {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 1.5rem;
-      font-weight: 600;
-      color: var(--text);
-      letter-spacing: -0.5px;
-    }
+    hr { border: none; border-top: 1px solid #1e293b; margin-bottom: 24px; }
 
-    header h1 span {
-      color: var(--accent);
-    }
-
-    header p {
-      color: var(--muted);
-      font-size: 0.875rem;
-      margin-top: 6px;
-    }
-
-    .upload-zone {
-      border: 1.5px dashed var(--border);
+    /* Drop zone */
+    .dropzone {
+      border: 2px dashed #2d3748;
       border-radius: 12px;
-      padding: 48px 32px;
+      padding: 48px 24px;
       text-align: center;
       cursor: pointer;
-      transition: all 0.2s;
-      background: var(--surface);
-      position: relative;
-    }
-
-    .upload-zone:hover, .upload-zone.dragover {
-      border-color: var(--accent);
-      background: #1e2235;
-    }
-
-    .upload-zone input[type="file"] {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
-    }
-
-    .upload-icon {
-      font-size: 2rem;
+      background: #161b27;
+      transition: border-color 0.2s, background 0.2s;
       margin-bottom: 12px;
     }
-
-    .upload-zone h2 {
-      font-size: 1rem;
-      font-weight: 500;
-      margin-bottom: 6px;
+    .dropzone:hover, .dropzone.dragover {
+      border-color: #60a5fa;
+      background: #1a2236;
     }
+    .dropzone .icon { font-size: 2.5rem; margin-bottom: 10px; }
+    .dropzone p { font-weight: 600; margin-bottom: 4px; }
+    .dropzone small { color: #475569; }
 
-    .upload-zone p {
-      color: var(--muted);
-      font-size: 0.8rem;
-    }
+    #fileInput { display: none; }
 
-    .file-selected {
-      margin-top: 16px;
-      padding: 10px 16px;
-      background: #1e2235;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.8rem;
-      color: var(--accent);
+    /* File info */
+    .file-info {
       display: none;
+      align-items: center;
+      gap: 10px;
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 0.875rem;
+      color: #93c5fd;
     }
+    .file-info.show { display: flex; }
 
-    .btn {
-      margin-top: 20px;
+    /* Button */
+    button#btnProses {
       width: 100%;
       padding: 14px;
-      background: var(--accent);
+      background: #3b82f6;
       color: #fff;
-      font-family: 'IBM Plex Sans', sans-serif;
-      font-size: 0.9rem;
-      font-weight: 600;
       border: none;
       border-radius: 8px;
-      cursor: pointer;
-      transition: opacity 0.2s;
-      letter-spacing: 0.3px;
-    }
-
-    .btn:hover { opacity: 0.85; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .progress {
-      display: none;
-      margin-top: 16px;
-      padding: 14px 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.85rem;
-      color: var(--muted);
-      font-family: 'IBM Plex Mono', monospace;
-    }
-
-    .progress.active { display: block; }
-
-    .error-box {
-      display: none;
-      margin-top: 16px;
-      padding: 14px 16px;
-      background: #2a1515;
-      border: 1px solid #5a2020;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      color: #ff8080;
-    }
-
-    .results {
-      margin-top: 32px;
-      display: none;
-    }
-
-    .results-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-    }
-
-    .results-header h2 {
-      font-size: 0.95rem;
+      font-size: 1rem;
       font-weight: 600;
-      font-family: 'IBM Plex Mono', monospace;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 12px;
     }
+    button#btnProses:hover { background: #2563eb; }
+    button#btnProses:disabled { background: #1e3a5f; color: #475569; cursor: not-allowed; }
+
+    /* Alert */
+    .alert {
+      display: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      margin-bottom: 12px;
+      align-items: center;
+      gap: 8px;
+    }
+    .alert.show { display: flex; }
+    .alert.error { background: #3b1212; border: 1px solid #7f1d1d; color: #fca5a5; }
+    .alert.success { background: #052e16; border: 1px solid #14532d; color: #86efac; }
+    .alert.info { background: #1e3a5f; border: 1px solid #1d4ed8; color: #93c5fd; }
+
+    /* Progress */
+    .progress-wrap { display: none; margin-bottom: 12px; }
+    .progress-wrap.show { display: block; }
+    .progress-bar-bg {
+      background: #1e293b;
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #3b82f6;
+      border-radius: 99px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+    .progress-label {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 4px;
+      text-align: right;
+    }
+
+    /* Table */
+    .table-wrap { display: none; margin-top: 24px; overflow-x: auto; }
+    .table-wrap.show { display: block; }
 
     .summary {
       display: flex;
       gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
-
-    .badge {
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-family: 'IBM Plex Mono', monospace;
-      font-weight: 600;
+    .summary-card {
+      flex: 1;
+      min-width: 120px;
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 12px 16px;
+      text-align: center;
     }
-
-    .badge.match   { background: #0d2b1a; color: var(--match); border: 1px solid #1a4a2a; }
-    .badge.mirip   { background: #2b1f0d; color: var(--mirip); border: 1px solid #4a3510; }
-    .badge.salah   { background: #2b0d0d; color: var(--salah); border: 1px solid #4a1515; }
-    .badge.invalid { background: #1a1d27; color: var(--invalid); border: 1px solid var(--border); }
-    .badge.format  { background: #1f0d2b; color: var(--format); border: 1px solid #3a1a4a; }
+    .summary-card .num { font-size: 1.5rem; font-weight: 700; }
+    .summary-card .lbl { font-size: 0.75rem; color: #64748b; }
+    .c-green { color: #4ade80; }
+    .c-yellow { color: #fbbf24; }
+    .c-red { color: #f87171; }
+    .c-blue { color: #60a5fa; }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.83rem;
-    }
-
-    thead th {
-      background: var(--surface);
-      padding: 10px 14px;
-      text-align: left;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.72rem;
-      color: var(--muted);
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      border-bottom: 1px solid var(--border);
-    }
-
-    tbody tr {
-      border-bottom: 1px solid var(--border);
-      transition: background 0.15s;
-    }
-
-    tbody tr:hover { background: var(--surface); }
-
-    tbody td {
-      padding: 10px 14px;
-      vertical-align: middle;
-    }
-
-    .status-pill {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.7rem;
-      font-weight: 600;
-    }
-
-    .status-pill.MATCH        { background: #0d2b1a; color: var(--match); }
-    .status-pill.MIRIP        { background: #2b1f0d; color: var(--mirip); }
-    .status-pill.SALAH        { background: #2b0d0d; color: var(--salah); }
-    .status-pill.INVALID      { background: #1a1d27; color: var(--invalid); }
-    .status-pill.FORMAT\.SALAH { background: #1f0d2b; color: var(--format); }
-
-    .keterangan { color: var(--muted); font-size: 0.78rem; }
-
-    .export-btn {
-      padding: 8px 16px;
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--muted);
       font-size: 0.8rem;
-      cursor: pointer;
-      font-family: 'IBM Plex Sans', sans-serif;
-      transition: all 0.2s;
+    }
+    thead th {
+      background: #1e293b;
+      padding: 10px 12px;
+      text-align: left;
+      color: #94a3b8;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #1e293b; }
+    tbody tr:hover { background: #161b27; }
+    tbody td { padding: 10px 12px; vertical-align: middle; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 99px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-match    { background: #052e16; color: #4ade80; }
+    .badge-mirip    { background: #2d1a00; color: #fbbf24; }
+    .badge-manual   { background: #1e3a5f; color: #93c5fd; }
+    .badge-salah    { background: #3b1212; color: #f87171; }
+    .badge-error    { background: #1e1e1e; color: #94a3b8; }
+
+    .score-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .score-bar-bg {
+      flex: 1;
+      height: 6px;
+      background: #0f172a;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 99px;
     }
 
-    .export-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
+    /* Download btn */
+    #btnDownload {
+      display: none;
+      margin-top: 16px;
+      padding: 10px 20px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      color: #94a3b8;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
     }
+    #btnDownload:hover { border-color: #3b82f6; color: #60a5fa; }
   </style>
 </head>
 <body>
 <div class="container">
-  <header>
-    <h1>Validasi <span>Rekening Bank</span></h1>
-    <p>Upload file Excel dengan kolom: nama, rekening, bank</p>
-  </header>
+  <h1>Validasi <span>Rekening Bank</span></h1>
+  <p class="subtitle">Upload file Excel dengan kolom: nama, rekening, bank</p>
+  <hr/>
 
-  <div class="upload-zone" id="dropZone">
-    <input type="file" id="fileInput" accept=".xlsx,.xls" />
-    <div class="upload-icon">📂</div>
-    <h2>Drag & drop atau klik untuk pilih file</h2>
-    <p>Format: .xlsx atau .xls</p>
+  <div class="dropzone" id="dropzone">
+    <div class="icon">📁</div>
+    <p>Drag & drop atau klik untuk pilih file</p>
+    <small>Format: .xlsx atau .xls</small>
+  </div>
+  <input type="file" id="fileInput" accept=".xlsx,.xls" />
+
+  <div class="file-info" id="fileInfo">
+    <span>📄</span>
+    <span id="fileName"></span>
   </div>
 
-  <div class="file-selected" id="fileSelected"></div>
+  <button id="btnProses" disabled>Proses Validasi</button>
 
-  <button class="btn" id="uploadBtn" disabled onclick="prosesFile()">
-    Proses Validasi
-  </button>
+  <div class="alert error" id="alertError">
+    <span>❌</span><span id="alertMsg">-</span>
+  </div>
+  <div class="alert success" id="alertSuccess">
+    <span>✅</span><span id="alertSuccessMsg">-</span>
+  </div>
+  <div class="alert info" id="alertInfo">
+    <span>ℹ️</span><span id="alertInfoMsg">-</span>
+  </div>
 
-  <div class="progress" id="progress">⏳ Sedang memproses... mohon tunggu</div>
-  <div class="error-box" id="errorBox"></div>
-
-  <div class="results" id="results">
-    <div class="results-header">
-      <h2>// HASIL VALIDASI</h2>
-      <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="progressFill"></div>
     </div>
+    <div class="progress-label" id="progressLabel">Memproses...</div>
+  </div>
+
+  <div class="table-wrap" id="tableWrap">
     <div class="summary" id="summary"></div>
     <table>
       <thead>
         <tr>
+          <th>#</th>
           <th>Nama Input</th>
           <th>Rekening</th>
           <th>Bank</th>
           <th>Nama di Bank</th>
+          <th>Score</th>
           <th>Status</th>
           <th>Keterangan</th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
     </table>
+    <button id="btnDownload">⬇️ Download CSV</button>
   </div>
 </div>
 
 <script>
-  let resultData = [];
-  const fileInput = document.getElementById('fileInput');
-  const fileSelected = document.getElementById('fileSelected');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const dropZone = document.getElementById('dropZone');
+  const dropzone   = document.getElementById('dropzone');
+  const fileInput  = document.getElementById('fileInput');
+  const fileInfo   = document.getElementById('fileInfo');
+  const fileName   = document.getElementById('fileName');
+  const btnProses  = document.getElementById('btnProses');
+  const tableWrap  = document.getElementById('tableWrap');
+  const tableBody  = document.getElementById('tableBody');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressFill = document.getElementById('progressFill');
+  const progressLabel = document.getElementById('progressLabel');
+  const btnDownload = document.getElementById('btnDownload');
 
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) {
-      fileSelected.style.display = 'block';
-      fileSelected.textContent = '📄 ' + fileInput.files[0].name;
-      uploadBtn.disabled = false;
-    }
-  });
+  let selectedFile = null;
+  let lastResults  = [];
 
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  dropZone.addEventListener('drop', e => {
+  // ── Drop zone ──────────────────────────────────────────────
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
     e.preventDefault();
-    dropZone.classList.remove('dragover');
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      fileInput.files = e.dataTransfer.files;
-      fileSelected.style.display = 'block';
-      fileSelected.textContent = '📄 ' + file.name;
-      uploadBtn.disabled = false;
-    }
+    dropzone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
   });
 
-  async function prosesFile() {
-    const file = fileInput.files[0];
-    if (!file) return;
+  function setFile(f) {
+    selectedFile = f;
+    fileName.textContent = f.name;
+    fileInfo.classList.add('show');
+    btnProses.disabled = false;
+    hideAlerts();
+    tableWrap.classList.remove('show');
+  }
 
-    const progress = document.getElementById('progress');
-    const errorBox = document.getElementById('errorBox');
-    const results = document.getElementById('results');
+  // ── Alerts ─────────────────────────────────────────────────
+  function hideAlerts() {
+    ['alertError','alertSuccess','alertInfo'].forEach(id => {
+      document.getElementById(id).classList.remove('show');
+    });
+  }
+  function showError(msg) {
+    hideAlerts();
+    document.getElementById('alertMsg').textContent = msg;
+    document.getElementById('alertError').classList.add('show');
+  }
+  function showSuccess(msg) {
+    hideAlerts();
+    document.getElementById('alertSuccessMsg').textContent = msg;
+    document.getElementById('alertSuccess').classList.add('show');
+  }
+  function showInfo(msg) {
+    hideAlerts();
+    document.getElementById('alertInfoMsg').textContent = msg;
+    document.getElementById('alertInfo').classList.add('show');
+  }
 
-    progress.classList.add('active');
-    errorBox.style.display = 'none';
-    results.style.display = 'none';
-    uploadBtn.disabled = true;
+  // ── Proses ─────────────────────────────────────────────────
+  btnProses.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    hideAlerts();
+    tableWrap.classList.remove('show');
+    btnProses.disabled = true;
+    progressWrap.classList.add('show');
+    progressFill.style.width = '10%';
+    progressLabel.textContent = 'Mengirim file...';
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', selectedFile);
 
     try {
-      const res = await fetch('/upload', { method: 'POST', body: formData });
-      const data = await res.json();
+      progressFill.style.width = '30%';
 
-      if (data.error) {
-        errorBox.style.display = 'block';
-        errorBox.textContent = '❌ ' + data.error;
-        return;
+      // ✅ URL relatif — otomatis sesuai host (localhost atau deployed)
+      const response = await fetch('/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      progressFill.style.width = '80%';
+      progressLabel.textContent = 'Memproses respons...';
+
+      // Cek apakah response OK
+      if (!response.ok) {
+        let errMsg = `Server error: HTTP ${response.status}`;
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
-      resultData = data;
-      tampilkanHasil(data);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error('Response bukan JSON: ' + text.substring(0, 100));
+      }
+
+      const data = await response.json();
+
+      progressFill.style.width = '100%';
+      progressLabel.textContent = 'Selesai!';
+
+      if (!Array.isArray(data)) {
+        throw new Error(data.error || 'Response tidak valid');
+      }
+
+      lastResults = data;
+      renderTable(data);
+      showSuccess(`Selesai! ${data.length} rekening diproses.`);
+
     } catch (err) {
-      errorBox.style.display = 'block';
-      errorBox.textContent = '❌ Gagal terhubung ke server';
+      console.error(err);
+      // Pesan error yang lebih informatif
+      let msg = err.message;
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch')) {
+        msg = 'Tidak bisa konek ke server Flask. Pastikan app.py sudah jalan di port 5000.';
+      }
+      showError(msg);
     } finally {
-      progress.classList.remove('active');
-      uploadBtn.disabled = false;
+      setTimeout(() => {
+        progressWrap.classList.remove('show');
+        progressFill.style.width = '0%';
+      }, 1000);
+      btnProses.disabled = false;
     }
+  });
+
+  // ── Render table ───────────────────────────────────────────
+  function renderTable(data) {
+    tableBody.innerHTML = '';
+
+    let countMatch = 0, countMirip = 0, countSalah = 0, countError = 0;
+
+    data.forEach((r, i) => {
+      const st = r.status || '';
+      if (st.includes('MATCH'))   countMatch++;
+      else if (st.includes('MIRIP')) countMirip++;
+      else if (st.includes('COCOK') || st.includes('SALAH') || st.includes('FORMAT')) countSalah++;
+      else countError++;
+
+      const score = parseFloat(r.score) || 0;
+      const scorePct = Math.min(score * 10, 100);
+      const scoreColor = score >= 9 ? '#4ade80' : score >= 7 ? '#fbbf24' : '#f87171';
+
+      let badgeClass = 'badge-error';
+      if (st.includes('MATCH'))   badgeClass = 'badge-match';
+      else if (st.includes('MIRIP'))   badgeClass = 'badge-mirip';
+      else if (st.includes('MANUAL') || st.includes('CEK')) badgeClass = 'badge-manual';
+      else if (st.includes('COCOK') || st.includes('SALAH') || st.includes('FORMAT')) badgeClass = 'badge-salah';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${esc(r.nama)}</td>
+        <td><code>${esc(r.rekening)}</code></td>
+        <td>${esc(r.bank)}</td>
+        <td>${esc(r.nama_di_bank || r.nama_bank || '-')}</td>
+        <td>
+          <div class="score-bar">
+            <div class="score-bar-bg">
+              <div class="score-bar-fill" style="width:${scorePct}%;background:${scoreColor}"></div>
+            </div>
+            <span style="font-size:0.75rem;color:${scoreColor};min-width:28px">${score > 0 ? score : '-'}</span>
+          </div>
+        </td>
+        <td><span class="badge ${badgeClass}">${esc(st)}</span></td>
+        <td style="color:#64748b">${esc(r.keterangan)}</td>
+      `;
+      tableBody.appendChild(tr);
+    });
+
+    // Summary
+    document.getElementById('summary').innerHTML = `
+      <div class="summary-card"><div class="num c-blue">${data.length}</div><div class="lbl">Total</div></div>
+      <div class="summary-card"><div class="num c-green">${countMatch}</div><div class="lbl">Match</div></div>
+      <div class="summary-card"><div class="num c-yellow">${countMirip}</div><div class="lbl">Mirip</div></div>
+      <div class="summary-card"><div class="num c-red">${countSalah}</div><div class="lbl">Tidak Cocok</div></div>
+      <div class="summary-card"><div class="num" style="color:#94a3b8">${countError}</div><div class="lbl">Error</div></div>
+    `;
+
+    tableWrap.classList.add('show');
+    btnDownload.style.display = 'inline-block';
   }
 
-  function tampilkanHasil(data) {
-    const tableBody = document.getElementById('tableBody');
-    const summary = document.getElementById('summary');
-    const results = document.getElementById('results');
-
-    // hitung summary
-    const counts = { MATCH: 0, MIRIP: 0, SALAH: 0, INVALID: 0, 'FORMAT SALAH': 0 };
-    data.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
-
-    const labelMap = { MATCH: 'match', MIRIP: 'mirip', SALAH: 'salah', INVALID: 'invalid', 'FORMAT SALAH': 'format' };
-    summary.innerHTML = Object.entries(counts).map(([k, v]) =>
-      `<span class="badge ${labelMap[k]}">${k}: ${v}</span>`
-    ).join('');
-
-    tableBody.innerHTML = data.map(r => `
-      <tr>
-        <td>${r.nama}</td>
-        <td style="font-family:'IBM Plex Mono',monospace">${r.rekening}</td>
-        <td>${r.bank}</td>
-        <td>${r.nama_bank || '<span style="color:var(--muted)">—</span>'}</td>
-        <td><span class="status-pill ${r.status}">${r.status}</span></td>
-        <td class="keterangan">${r.keterangan || ''}</td>
-      </tr>
-    `).join('');
-
-    results.style.display = 'block';
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function exportCSV() {
-    if (!resultData.length) return;
-    const headers = ['Nama', 'Rekening', 'Bank', 'Nama di Bank', 'Status', 'Keterangan'];
-    const rows = resultData.map(r => [r.nama, r.rekening, r.bank, r.nama_bank, r.status, r.keterangan]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+  // ── Download CSV ───────────────────────────────────────────
+  btnDownload.addEventListener('click', () => {
+    if (!lastResults.length) return;
+    const headers = ['Nama','Rekening','Bank','Nama di Bank','Score','Status','Keterangan'];
+    const rows = lastResults.map(r => [
+      r.nama, r.rekening, r.bank,
+      r.nama_di_bank || r.nama_bank || '-',
+      r.score, r.status, r.keterangan
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'hasil_validasi.csv'; a.click();
-  }
+    URL.revokeObjectURL(url);
+  });
 </script>
 </body>
 </html>
