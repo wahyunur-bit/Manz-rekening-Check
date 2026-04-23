@@ -1,6 +1,5 @@
 flask
 pandas
 openpyxl
-xlrd
-gevent>=24.10.1
-gunicorn[gevent]
+requests
+gunicorn
