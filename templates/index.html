@@ -1,128 +1,174 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
 <meta charset="UTF-8">
 <title>Validasi Rekening</title>
+
 <style>
-body{background:#0f172a;color:white;font-family:sans-serif;padding:20px}
-.container{max-width:900px;margin:auto}
-.drop{border:2px dashed #334155;padding:30px;text-align:center;cursor:pointer;border-radius:10px}
-button{padding:10px 15px;background:#3b82f6;color:white;border:none;border-radius:6px;margin-top:10px;cursor:pointer}
-table{width:100%;margin-top:20px;border-collapse:collapse}
-th,td{padding:8px;border-bottom:1px solid #1e293b;text-align:left}
-.green{color:#22c55e}
-.yellow{color:#f59e0b}
-.red{color:#ef4444}
+body{
+  background:#0f172a;
+  color:#e2e8f0;
+  font-family:sans-serif;
+  padding:40px;
+  text-align:center;
+}
+
+.box{
+  border:2px dashed #334155;
+  padding:30px;
+  border-radius:10px;
+  margin-bottom:10px;
+  cursor:pointer;
+}
+
+button{
+  padding:10px 20px;
+  background:#3b82f6;
+  border:none;
+  border-radius:6px;
+  color:white;
+  cursor:pointer;
+  margin:5px;
+}
+
+table{
+  width:100%;
+  margin-top:20px;
+  border-collapse:collapse;
+}
+
+th,td{
+  padding:10px;
+  border-bottom:1px solid #1e293b;
+}
+
+.match{color:#4ade80}
+.salah{color:#f87171}
 </style>
 </head>
 
 <body>
-<div class="container">
 
 <h2>Validasi Rekening Bank</h2>
 
-<div class="drop" onclick="fi.click()">Klik / Drag Excel</div>
-<input type="file" id="fi" hidden>
+<div class="box" onclick="fileInput.click()">
+  Klik / Drag Excel
+</div>
 
-<div id="fname"></div>
+<input type="file" id="fileInput" hidden>
+
+<p id="fileName"></p>
 
 <button onclick="start()">Proses</button>
-<a href="/template"><button>Download Template</button></a>
+<button onclick="downloadTemplate()">Download Template</button>
 
 <table>
 <thead>
 <tr>
-<th>No</th><th>Nama</th><th>Rekening</th><th>Bank</th><th>Nama Bank</th><th>Hasil</th>
+<th>No</th>
+<th>Nama</th>
+<th>Rekening</th>
+<th>Bank</th>
+<th>Nama Bank</th>
+<th>Hasil</th>
 </tr>
 </thead>
 <tbody id="tbody"></tbody>
 </table>
 
-<button onclick="download()">Download Hasil</button>
-
-</div>
+<button onclick="downloadCSV()">Download Hasil</button>
 
 <script>
 let file = null;
 let results = [];
 
-const fi = document.getElementById("fi");
-const fname = document.getElementById("fname");
-const tbody = document.getElementById("tbody");
+const fileInput = document.getElementById('fileInput');
+const tbody = document.getElementById('tbody');
 
-fi.onchange = () => {
-  file = fi.files[0];
-  fname.innerText = file.name;
+fileInput.onchange = () => {
+  file = fileInput.files[0];
+  document.getElementById('fileName').innerText = file.name;
 };
 
-function start() {
-  if (!file) return alert("Pilih file dulu");
+// 🔥 START PROCESS (REALTIME)
+async function start(){
+  if(!file) return alert("Pilih file dulu");
 
-  tbody.innerHTML = "";
+  tbody.innerHTML = '';   // FIX DUPLIKAT
   results = [];
 
   const fd = new FormData();
-  fd.append("file", file);
+  fd.append('file', file);
 
-  fetch("/stream", {method:"POST", body:fd})
-  .then(res => {
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-
-    function read() {
-      reader.read().then(({done, value}) => {
-        if (done) return;
-
-        buf += decoder.decode(value);
-        const lines = buf.split("\n");
-        buf = lines.pop();
-
-        lines.forEach(line => {
-          if (!line.startsWith("data:")) return;
-          const data = JSON.parse(line.replace("data:","").trim());
-
-          if (data.type === "result") {
-            addRow(data);
-            results.push(data);
-          }
-        });
-
-        read();
-      });
-    }
-    read();
+  const res = await fetch('/stream', {
+    method:'POST',
+    body:fd
   });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  let buffer = '';
+
+  while(true){
+    const {value,done} = await reader.read();
+    if(done) break;
+
+    buffer += decoder.decode(value,{stream:true});
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+
+    for(const line of lines){
+      if(!line.startsWith('data:')) continue;
+
+      const data = JSON.parse(line.replace('data:','').trim());
+
+      if(data.type === 'result'){
+        addRow(data);
+        results.push(data);
+      }
+    }
+  }
 }
 
-function addRow(r) {
-  const tr = document.createElement("tr");
-
-  let cls = "";
-  if (r.status === "MATCH") cls="green";
-  else if (r.status === "TIDAK SAMA") cls="yellow";
-  else cls="red";
+// 🔥 ADD ROW (REALTIME)
+function addRow(d){
+  const tr = document.createElement('tr');
 
   tr.innerHTML = `
-    <td>${r.index}</td>
-    <td>${r.nama}</td>
-    <td>${r.rekening}</td>
-    <td>${r.bank}</td>
-    <td>${r.nama_di_bank}</td>
-    <td class="${cls}">${r.status}</td>
+    <td>${d.index}</td>
+    <td>${d.nama}</td>
+    <td>${d.rekening}</td>
+    <td>${d.bank}</td>
+    <td>${d.nama_bank}</td>
+    <td class="${d.hasil==='MATCH'?'match':'salah'}">${d.hasil}</td>
   `;
 
   tbody.appendChild(tr);
 }
 
-function download() {
+// 🔥 DOWNLOAD TEMPLATE
+function downloadTemplate(){
+  const csv = "nama,rekening,bank\nWAHYU NUR IMAN,1330024362634,MANDIRI";
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "template.csv";
+  a.click();
+}
+
+// 🔥 DOWNLOAD HASIL
+function downloadCSV(){
+  if(results.length === 0) return;
+
   let csv = "No,Nama,Rekening,Bank,Nama Bank,Hasil\n";
+
   results.forEach(r=>{
-    csv += `${r.index},${r.nama},${r.rekening},${r.bank},${r.nama_di_bank},${r.status}\n`;
+    csv += `${r.index},${r.nama},${r.rekening},${r.bank},${r.nama_bank},${r.hasil}\n`;
   });
 
-  const blob = new Blob([csv], {type:"text/csv"});
-  const a = document.createElement("a");
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = "hasil.csv";
   a.click();
