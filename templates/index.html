@@ -13,16 +13,26 @@
         .box {
             margin: 40px auto;
             padding: 20px;
-            width: 80%;
+            width: 90%;
             background: #1e293b;
-            border-radius: 10px;
+            border-radius: 12px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #3b82f6;
+            border: none;
+            color: white;
+            cursor: pointer;
         }
         table {
             width: 100%;
             margin-top: 20px;
+            border-collapse: collapse;
         }
         th, td {
             padding: 10px;
+            border-bottom: 1px solid #334155;
         }
     </style>
 </head>
@@ -33,9 +43,9 @@
 
     <input type="file" id="file">
     <button onclick="upload()">Proses</button>
-    <a href="/template">Download Template</a>
+    <a href="/template" style="color:#60a5fa;">Download Template</a>
 
-    <table border="1">
+    <table>
         <thead>
             <tr>
                 <th>No</th>
