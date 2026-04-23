@@ -6,31 +6,29 @@
 <title>Validasi Rekening Bank</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d1117;color:#e2e8f0;font-family:'Segoe UI',sans-serif;min-height:100vh;padding:32px 16px}
-.wrap{max-width:980px;margin:0 auto}
-
-h1{font-size:1.6rem;margin-bottom:4px}
+body{background:#0d1117;color:#e2e8f0;font-family:'Segoe UI',sans-serif;min-height:100vh;padding:28px 16px}
+.wrap{max-width:1060px;margin:0 auto}
+h1{font-size:1.55rem;margin-bottom:3px}
 h1 span{color:#60a5fa}
-.sub{color:#475569;font-size:.85rem;margin-bottom:20px}
-hr{border:none;border-top:1px solid #1e293b;margin-bottom:20px}
+.sub{color:#475569;font-size:.82rem;margin-bottom:18px}
+hr{border:none;border-top:1px solid #1e293b;margin-bottom:18px}
 
-/* upload area */
-.drop{border:2px dashed #2d3748;border-radius:12px;padding:40px 24px;text-align:center;cursor:pointer;background:#161b27;transition:.2s;margin-bottom:10px}
+/* drop */
+.drop{border:2px dashed #2d3748;border-radius:12px;padding:36px 24px;text-align:center;cursor:pointer;background:#161b27;transition:.2s;margin-bottom:10px}
 .drop:hover,.drop.over{border-color:#60a5fa;background:#1a2236}
-.drop .ico{font-size:2.2rem;margin-bottom:8px}
+.drop .ico{font-size:2rem;margin-bottom:6px}
 .drop p{font-weight:600;margin-bottom:2px}
-.drop small{color:#475569}
+.drop small{color:#475569;font-size:.78rem}
 #fi{display:none}
 
-.finfo{display:none;align-items:center;gap:8px;background:#1e293b;border-radius:8px;padding:9px 14px;margin-bottom:10px;font-size:.85rem;color:#93c5fd}
+.finfo{display:none;align-items:center;gap:8px;background:#1e293b;border-radius:8px;padding:9px 14px;margin-bottom:10px;font-size:.82rem;color:#93c5fd}
 .finfo.show{display:flex}
 
-button.primary{width:100%;padding:13px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-bottom:10px;transition:.2s}
+button.primary{width:100%;padding:12px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;margin-bottom:10px;transition:.2s}
 button.primary:hover{background:#2563eb}
 button.primary:disabled{background:#1e3a5f;color:#475569;cursor:not-allowed}
 
-/* alert */
-.alert{display:none;padding:11px 14px;border-radius:8px;font-size:.85rem;margin-bottom:10px;align-items:center;gap:8px}
+.alert{display:none;padding:10px 14px;border-radius:8px;font-size:.82rem;margin-bottom:10px;align-items:center;gap:8px}
 .alert.show{display:flex}
 .err{background:#3b1212;border:1px solid #7f1d1d;color:#fca5a5}
 .ok{background:#052e16;border:1px solid #14532d;color:#86efac}
@@ -38,29 +36,55 @@ button.primary:disabled{background:#1e3a5f;color:#475569;cursor:not-allowed}
 /* progress */
 .pgwrap{display:none;margin-bottom:10px}
 .pgwrap.show{display:block}
-.pgbg{background:#1e293b;border-radius:99px;height:8px;overflow:hidden}
-.pgfill{height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:99px;transition:width .4s}
-.pglbl{font-size:.75rem;color:#64748b;margin-top:4px;display:flex;justify-content:space-between}
+.pgbg{background:#1e293b;border-radius:99px;height:7px;overflow:hidden}
+.pgfill{height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:99px;transition:width .35s}
+.pglbl{font-size:.72rem;color:#64748b;margin-top:4px;display:flex;justify-content:space-between}
 
-/* summary cards */
-.cards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-.card{flex:1;min-width:110px;background:#161b27;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;text-align:center}
-.card .n{font-size:1.6rem;font-weight:700}
-.card .l{font-size:.7rem;color:#64748b;margin-top:2px}
+/* cards */
+.cards{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.card{flex:1;min-width:100px;background:#161b27;border:1px solid #1e293b;border-radius:10px;padding:10px 12px;text-align:center}
+.card .n{font-size:1.5rem;font-weight:700}
+.card .l{font-size:.68rem;color:#64748b;margin-top:1px}
 .cblue{color:#60a5fa}.cgreen{color:#4ade80}.cyellow{color:#fbbf24}.cred{color:#f87171}.cgray{color:#94a3b8}
 
-/* table */
-.twrap{display:none;overflow-x:auto}
+/* table section */
+.twrap{display:none}
 .twrap.show{display:block}
-table{width:100%;border-collapse:collapse;font-size:.8rem}
-thead th{background:#161b27;padding:10px 12px;text-align:left;color:#94a3b8;font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:1}
-tbody tr{border-bottom:1px solid #161b27;animation:fadeIn .3s ease}
-tbody tr:hover{background:#161b27}
-tbody td{padding:9px 12px;vertical-align:middle}
-@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 
-/* badge */
-.badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:.68rem;font-weight:700;white-space:nowrap}
+/* toolbar */
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.live{display:none;align-items:center;gap:6px;font-size:.75rem;color:#4ade80}
+.live.show{display:flex}
+.dot{width:7px;height:7px;background:#4ade80;border-radius:50%;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* download group */
+.dl-group{display:none;gap:8px}
+.dl-group.show{display:flex}
+.dl-btn{padding:7px 14px;border-radius:7px;border:1px solid #1e293b;background:#0f172a;color:#94a3b8;cursor:pointer;font-size:.78rem;font-weight:600;transition:.2s;display:flex;align-items:center;gap:5px}
+.dl-btn:hover{border-color:#3b82f6;color:#60a5fa}
+.dl-btn.xlsx{border-color:#166534;color:#4ade80}
+.dl-btn.xlsx:hover{background:#052e16}
+.dl-btn.csv{border-color:#1e3a5f;color:#60a5fa}
+.dl-btn.csv:hover{background:#172554}
+
+/* filter */
+.filter-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.fbtn{padding:4px 12px;border-radius:99px;border:1px solid #1e293b;background:transparent;color:#64748b;cursor:pointer;font-size:.72rem;transition:.2s}
+.fbtn:hover,.fbtn.active{background:#1e293b;color:#e2e8f0}
+.fbtn.active{border-color:#3b82f6;color:#60a5fa}
+
+/* table */
+.tscroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.78rem}
+thead th{background:#161b27;padding:9px 11px;text-align:left;color:#94a3b8;font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:1px solid #1e293b}
+tbody tr{border-bottom:1px solid #0d1117;animation:fadeIn .25s ease}
+tbody tr:hover{background:#161b27}
+tbody tr.hidden{display:none}
+tbody td{padding:8px 11px;vertical-align:middle}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.65rem;font-weight:700;white-space:nowrap}
 .bm{background:#052e16;color:#4ade80}
 .bmi{background:#2d1a00;color:#fbbf24}
 .bc{background:#172554;color:#93c5fd}
@@ -68,19 +92,9 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .be{background:#1e1e1e;color:#64748b}
 .bf{background:#2d1f00;color:#fbbf24}
 
-/* score bar */
 .sb{display:flex;align-items:center;gap:5px}
-.sbbg{flex:1;height:5px;background:#0f172a;border-radius:99px;overflow:hidden}
+.sbbg{flex:1;height:5px;background:#0f172a;border-radius:99px;overflow:hidden;min-width:40px}
 .sbfill{height:100%;border-radius:99px}
-
-/* download */
-.dlbtn{display:none;margin-top:14px;padding:9px 18px;background:#0f172a;border:1px solid #1e293b;color:#94a3b8;border-radius:8px;cursor:pointer;font-size:.85rem}
-.dlbtn:hover{border-color:#3b82f6;color:#60a5fa}
-
-/* live indicator */
-.live{display:inline-flex;align-items:center;gap:6px;font-size:.75rem;color:#4ade80;margin-bottom:8px}
-.dot{width:7px;height:7px;background:#4ade80;border-radius:50%;animation:pulse 1s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 </style>
 </head>
 <body>
@@ -97,7 +111,6 @@ tbody td{padding:9px 12px;vertical-align:middle}
   <input type="file" id="fi" accept=".xlsx,.xls"/>
 
   <div class="finfo" id="finfo"><span>📄</span><span id="fname"></span></div>
-
   <button class="primary" id="btnStart" disabled>Proses Validasi</button>
 
   <div class="alert err" id="aErr"><span>❌</span><span id="aErrMsg"></span></div>
@@ -108,29 +121,53 @@ tbody td{padding:9px 12px;vertical-align:middle}
     <div class="pglbl"><span id="pgstatus">Memproses...</span><span id="pgcount"></span></div>
   </div>
 
-  <!-- hasil real-time -->
   <div class="twrap" id="twrap">
-    <div class="live" id="liveInd" style="display:none"><span class="dot"></span> Memproses live...</div>
-    <div class="cards" id="cards">
-      <div class="card"><div class="n cblue" id="cTotal">0</div><div class="l">Total</div></div>
-      <div class="card"><div class="n cgreen" id="cMatch">0</div><div class="l">✅ Match</div></div>
-      <div class="card"><div class="n cyellow" id="cMirip">0</div><div class="l">⚠️ Mirip</div></div>
-      <div class="card"><div class="n cred" id="cSalah">0</div><div class="l">❌ Tidak Cocok</div></div>
-      <div class="card"><div class="n cgray" id="cError">0</div><div class="l">⚠️ Error/Lain</div></div>
+    <!-- toolbar -->
+    <div class="toolbar">
+      <div class="live" id="liveInd"><span class="dot"></span> Memproses live...</div>
+      <div class="dl-group" id="dlGroup">
+        <button class="dl-btn xlsx" id="dlXlsx">⬇️ Download XLSX</button>
+        <button class="dl-btn csv"  id="dlCsv" >⬇️ Download CSV</button>
+      </div>
     </div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Nama Input</th><th>Rekening</th><th>Bank</th>
-          <th>Nama di Bank</th><th>Score</th><th>Status</th><th>Keterangan</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-    <button class="dlbtn" id="dlbtn">⬇️ Download CSV</button>
+
+    <!-- summary cards -->
+    <div class="cards">
+      <div class="card"><div class="n cblue"   id="cTotal">0</div><div class="l">Total</div></div>
+      <div class="card"><div class="n cgreen"  id="cMatch">0</div><div class="l">✅ Match</div></div>
+      <div class="card"><div class="n cyellow" id="cMirip">0</div><div class="l">⚠️ Mirip</div></div>
+      <div class="card"><div class="n cred"    id="cSalah">0</div><div class="l">❌ Tidak Cocok</div></div>
+      <div class="card"><div class="n cgray"   id="cError">0</div><div class="l">⚙️ Error/Lain</div></div>
+    </div>
+
+    <!-- filter -->
+    <div class="filter-bar" id="filterBar">
+      <button class="fbtn active" data-f="ALL">Semua</button>
+      <button class="fbtn" data-f="MATCH">✅ Match</button>
+      <button class="fbtn" data-f="MIRIP">⚠️ Mirip</button>
+      <button class="fbtn" data-f="TIDAK COCOK">❌ Tidak Cocok</button>
+      <button class="fbtn" data-f="CEK MANUAL">ℹ️ Cek Manual</button>
+      <button class="fbtn" data-f="ERROR">⚙️ Error</button>
+      <button class="fbtn" data-f="FORMAT SALAH">⚠️ Format Salah</button>
+    </div>
+
+    <!-- table -->
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Nama Input</th><th>Rekening</th><th>Bank</th>
+            <th>Nama di Bank</th><th>Score</th><th>Status</th><th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
+<!-- SheetJS untuk XLSX -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const drop     = document.getElementById('drop');
 const fi       = document.getElementById('fi');
@@ -148,7 +185,9 @@ const pgcount  = document.getElementById('pgcount');
 const twrap    = document.getElementById('twrap');
 const tbody    = document.getElementById('tbody');
 const liveInd  = document.getElementById('liveInd');
-const dlbtn    = document.getElementById('dlbtn');
+const dlGroup  = document.getElementById('dlGroup');
+const dlXlsx   = document.getElementById('dlXlsx');
+const dlCsv    = document.getElementById('dlCsv');
 
 const cTotal = document.getElementById('cTotal');
 const cMatch = document.getElementById('cMatch');
@@ -158,7 +197,8 @@ const cError = document.getElementById('cError');
 
 let selFile = null;
 let results = [];
-let counts  = {total:0, match:0, mirip:0, salah:0, error:0};
+let counts  = {total:0,match:0,mirip:0,salah:0,error:0};
+let curFilter = 'ALL';
 
 // ── Drop zone ──────────────────────────────────────
 drop.onclick = () => fi.click();
@@ -185,21 +225,35 @@ function showErr(msg) { hideAlerts(); aErrMsg.textContent = msg; aErr.classList.
 function showOk(msg)  { hideAlerts(); aOkMsg.textContent  = msg; aOk.classList.add('show'); }
 
 function resetCounts() {
-  counts = {total:0, match:0, mirip:0, salah:0, error:0};
-  [cTotal,cMatch,cMirip,cSalah,cError].forEach(el => el.textContent = '0');
+  counts = {total:0,match:0,mirip:0,salah:0,error:0};
+  [cTotal,cMatch,cMirip,cSalah,cError].forEach(el => el.textContent='0');
 }
 
-function updateCounts(status) {
-  counts.total++;
-  cTotal.textContent = counts.total;
-  const st = status || '';
-  if (st === 'MATCH')        { counts.match++;  cMatch.textContent = counts.match; }
-  else if (st === 'MIRIP')   { counts.mirip++;  cMirip.textContent = counts.mirip; }
-  else if (st === 'TIDAK COCOK' || st === 'FORMAT SALAH') { counts.salah++; cSalah.textContent = counts.salah; }
-  else                       { counts.error++;  cError.textContent = counts.error; }
+function updateCounts(st) {
+  counts.total++; cTotal.textContent = counts.total;
+  if      (st==='MATCH')                            { counts.match++;  cMatch.textContent=counts.match; }
+  else if (st==='MIRIP')                            { counts.mirip++;  cMirip.textContent=counts.mirip; }
+  else if (st==='TIDAK COCOK'||st==='FORMAT SALAH') { counts.salah++;  cSalah.textContent=counts.salah; }
+  else                                              { counts.error++;  cError.textContent=counts.error; }
 }
 
-// ── Main: SSE streaming ────────────────────────────
+// ── Filter ─────────────────────────────────────────
+document.getElementById('filterBar').addEventListener('click', e => {
+  const btn = e.target.closest('[data-f]');
+  if (!btn) return;
+  curFilter = btn.dataset.f;
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.toggle('active', b===btn));
+  applyFilter();
+});
+
+function applyFilter() {
+  document.querySelectorAll('#tbody tr').forEach(tr => {
+    const st = tr.dataset.status || '';
+    tr.classList.toggle('hidden', curFilter !== 'ALL' && st !== curFilter);
+  });
+}
+
+// ── SSE Streaming ──────────────────────────────────
 btnStart.addEventListener('click', async () => {
   if (!selFile) return;
 
@@ -207,20 +261,22 @@ btnStart.addEventListener('click', async () => {
   tbody.innerHTML = '';
   results = [];
   resetCounts();
+  curFilter = 'ALL';
+  document.querySelectorAll('.fbtn').forEach((b,i) => b.classList.toggle('active', i===0));
+
   btnStart.disabled = true;
   pgwrap.classList.add('show');
   pgfill.style.width = '2%';
   pgstatus.textContent = 'Mengirim file...';
   pgcount.textContent = '';
   twrap.classList.add('show');
-  liveInd.style.display = 'inline-flex';
-  dlbtn.style.display = 'none';
+  liveInd.classList.add('show');
+  dlGroup.classList.remove('show');
 
   const fd = new FormData();
   fd.append('file', selFile);
 
   let total = 0;
-  let done  = false;
 
   try {
     const resp = await fetch('/stream', { method:'POST', body: fd });
@@ -231,17 +287,17 @@ btnStart.addEventListener('click', async () => {
       throw new Error(msg);
     }
 
-    const reader = resp.body.getReader();
+    const reader  = resp.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
 
     while (true) {
-      const { value, done: streamDone } = await reader.read();
-      if (streamDone) break;
+      const { value, done } = await reader.read();
+      if (done) break;
 
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split('\n');
-      buf = lines.pop(); // simpan baris tidak lengkap
+      buf = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
@@ -250,17 +306,15 @@ btnStart.addEventListener('click', async () => {
 
         if (evt.type === 'fatal') {
           showErr(evt.error);
-          liveInd.style.display = 'none';
+          liveInd.classList.remove('show');
           pgwrap.classList.remove('show');
           btnStart.disabled = false;
           return;
         }
-
         if (evt.type === 'start') {
           total = evt.total;
           pgstatus.textContent = `Memproses ${total} rekening...`;
         }
-
         if (evt.type === 'result') {
           addRow(evt);
           updateCounts(evt.status);
@@ -268,89 +322,103 @@ btnStart.addEventListener('click', async () => {
           const pct = Math.round((evt.index / total) * 100);
           pgfill.style.width = pct + '%';
           pgcount.textContent = `${evt.index} / ${total}`;
-          pgstatus.textContent = `Mengecek rekening ${evt.index}...`;
+          pgstatus.textContent = `Mengecek rekening ${evt.index} dari ${total}...`;
         }
-
         if (evt.type === 'done') {
-          done = true;
           pgfill.style.width = '100%';
           pgstatus.textContent = 'Selesai!';
           pgcount.textContent = `${evt.total} / ${evt.total}`;
-          liveInd.style.display = 'none';
-          dlbtn.style.display = 'inline-block';
-          showOk(`✅ Selesai! ${evt.total} rekening diproses.`);
-          setTimeout(() => pgwrap.classList.remove('show'), 1500);
+          liveInd.classList.remove('show');
+          dlGroup.classList.add('show');
+          showOk(`Selesai! ${evt.total} rekening berhasil diproses.`);
+          setTimeout(() => pgwrap.classList.remove('show'), 1800);
           btnStart.disabled = false;
         }
       }
     }
 
-    if (!done) {
-      liveInd.style.display = 'none';
-      btnStart.disabled = false;
-    }
+    liveInd.classList.remove('show');
+    btnStart.disabled = false;
 
   } catch(err) {
     let msg = err.message;
-    if (msg.includes('fetch') || msg.includes('Failed') || msg.includes('NetworkError')) {
+    if (msg.includes('fetch')||msg.includes('Failed')||msg.includes('NetworkError')) {
       msg = 'Tidak bisa konek ke server. Pastikan app.py sudah jalan (python app.py).';
     }
     showErr(msg);
-    liveInd.style.display = 'none';
+    liveInd.classList.remove('show');
     pgwrap.classList.remove('show');
     btnStart.disabled = false;
   }
 });
 
-// ── Render satu baris ──────────────────────────────
+// ── Render baris ───────────────────────────────────
 function addRow(r) {
   const score = parseFloat(r.score) || 0;
   const pct   = Math.min(score * 10, 100);
   const col   = score >= 9 ? '#4ade80' : score >= 7 ? '#fbbf24' : '#f87171';
-
-  const badgeMap = {
-    'MATCH':       'bm',
-    'MIRIP':       'bmi',
-    'CEK MANUAL':  'bc',
-    'TIDAK COCOK': 'bs',
-    'FORMAT SALAH':'bf',
-    'ERROR':       'be'
-  };
-  const bc = badgeMap[r.status] || 'be';
+  const bMap  = {MATCH:'bm',MIRIP:'bmi','CEK MANUAL':'bc','TIDAK COCOK':'bs','FORMAT SALAH':'bf',ERROR:'be'};
+  const bc    = bMap[r.status] || 'be';
+  const hidden = (curFilter !== 'ALL' && r.status !== curFilter) ? 'hidden' : '';
 
   const tr = document.createElement('tr');
+  tr.dataset.status = r.status;
+  if (hidden) tr.classList.add('hidden');
   tr.innerHTML = `
     <td>${r.index}</td>
-    <td>${esc(r.nama)}</td>
+    <td><b>${esc(r.nama)}</b></td>
     <td><code style="color:#93c5fd">${esc(r.rekening)}</code></td>
-    <td><span style="font-size:.75rem;color:#94a3b8">${esc(r.bank)}</span></td>
+    <td style="font-size:.72rem;color:#94a3b8">${esc(r.bank)}</td>
     <td>${esc(r.nama_di_bank)}</td>
     <td>
       <div class="sb">
         <div class="sbbg"><div class="sbfill" style="width:${pct}%;background:${col}"></div></div>
-        <span style="font-size:.75rem;color:${col};min-width:24px">${score > 0 ? score : '-'}</span>
+        <span style="font-size:.72rem;color:${col};min-width:22px">${score>0?score:'-'}</span>
       </div>
     </td>
     <td><span class="badge ${bc}">${esc(r.status)}</span></td>
-    <td style="color:#64748b;font-size:.75rem">${esc(r.keterangan)}</td>
+    <td style="color:#64748b;font-size:.72rem">${esc(r.keterangan)}</td>
   `;
-  tbody.insertBefore(tr, tbody.firstChild); // terbaru di atas
+  tbody.insertBefore(tr, tbody.firstChild);
 }
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Download CSV ───────────────────────────────────
-dlbtn.addEventListener('click', () => {
+// ── Download XLSX ──────────────────────────────────
+dlXlsx.addEventListener('click', () => {
   if (!results.length) return;
-  const h = ['No','Nama','Rekening','Bank','Nama di Bank','Score','Status','Keterangan'];
+  const ws_data = [
+    ['No','Nama Input','Rekening','Bank','Nama di Bank','Score','Status','Keterangan'],
+    ...results.map(r => [r.index, r.nama, r.rekening, r.bank, r.nama_di_bank||'-', r.score||0, r.status, r.keterangan])
+  ];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+  // lebar kolom otomatis
+  ws['!cols'] = [5,25,18,12,25,7,14,40].map(w => ({wch:w}));
+
+  // warna header
+  const headerStyle = {font:{bold:true},fill:{fgColor:{rgb:"1E293B"}},alignment:{horizontal:"center"}};
+  ['A1','B1','C1','D1','E1','F1','G1','H1'].forEach(cell => {
+    if (ws[cell]) ws[cell].s = headerStyle;
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Hasil Validasi');
+  XLSX.writeFile(wb, 'hasil_validasi.xlsx');
+});
+
+// ── Download CSV ───────────────────────────────────
+dlCsv.addEventListener('click', () => {
+  if (!results.length) return;
+  const h = ['No','Nama Input','Rekening','Bank','Nama di Bank','Score','Status','Keterangan'];
   const rows = results.map(r => [
-    r.index, r.nama, r.rekening, r.bank,
-    r.nama_di_bank, r.score, r.status, r.keterangan
+    r.index, r.nama, r.rekening, r.bank, r.nama_di_bank||'-', r.score||0, r.status, r.keterangan
   ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
   const csv = [h.join(','), ...rows].join('\n');
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
   const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'hasil_validasi.csv'});
   a.click();
+  URL.revokeObjectURL(a.href);
 });
 </script>
 </body>
