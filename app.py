@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, send_file, jsonify
+from flask import Flask, request, render_template, send_file
 from flask_socketio import SocketIO, emit
 import pandas as pd
 import json
@@ -9,19 +9,16 @@ import concurrent.futures
 app = Flask(__name__)
 socketio = SocketIO(app)
 
-# 🔥 Normalisasi nama
+# Function to normalize names
 def clean(s: str) -> str:
     return ''.join(str(s).upper().split())
 
-# ⚠️ SIMULASI API BANK — GANTI DENGAN API ASLI
+# Simulate bank API call
 def cek_rekening(nama: str, rekening: str, bank: str) -> str:
-    """
-    Ganti fungsi ini dengan API bank asli.
-    Return: nama_bank (string) atau None jika gagal
-    """
-    time.sleep(0.3)  # simulasi latency API
-    return nama  # simulasi: nama_bank = nama (anggap valid)
+    time.sleep(0.3)  # Simulating API latency
+    return nama  # Simulates bank name as valid
 
+# Process each row in the DataFrame
 def proses_satu(args):
     i, row = args
     nama = str(row.get('nama', '')).strip()
@@ -41,12 +38,7 @@ def proses_satu(args):
             "hasil": f"ERROR: {str(e)}"
         }
 
-    if not nama_bank or nama_bank == '-':
-        hasil = "TIDAK VALID"
-    elif clean(nama) == clean(nama_bank):
-        hasil = "MATCH"
-    else:
-        hasil = "TIDAK SAMA"
+    hasil = "TIDAK VALID" if not nama_bank or nama_bank == '-' else "MATCH" if clean(nama) == clean(nama_bank) else "TIDAK SAMA"
 
     return {
         "type": "result",
@@ -58,22 +50,21 @@ def proses_satu(args):
         "hasil": hasil
     }
 
+# Generate the streaming process
 def generate_stream(file):
     df = pd.read_excel(file)
     df.columns = [c.strip().lower() for c in df.columns]
     total = len(df)
-    
-    rows = list(df.iterrows())
 
+    rows = list(df.iterrows())
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(proses_satu, row): idx for idx, row in enumerate(rows)}
 
         for future in concurrent.futures.as_completed(futures):
             idx = futures[future]
             result = future.result()
-            socketio.emit('result', result)
-        
-        socketio.emit('done', {'total': total})
+            socketio.emit('result', result)  # Emit result to the socket
+        socketio.emit('done', {'total': total})  # Emit done event
 
 @app.route('/')
 def index():
@@ -112,17 +103,14 @@ def download_hasil():
     if fmt == 'csv':
         csv_str = df.to_csv(index=False)
         buf.write(csv_str.encode('utf-8-sig'))
-        buf.seek(0)
-        return send_file(buf, as_attachment=True,
-                         download_name='hasil_validasi.csv',
-                         mimetype='text/csv')
     else:
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df.to_excel(writer, index=False)
-        buf.seek(0)
-        return send_file(buf, as_attachment=True,
-                         download_name='hasil_validasi.xlsx',
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=f'hasil_validasi.{fmt}',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if fmt == 'xlsx' else 'text/csv')
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
