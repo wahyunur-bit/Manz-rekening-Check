@@ -1,12 +1,13 @@
 from flask import Flask, request, Response, render_template, send_file, jsonify
+from flask_socketio import SocketIO, emit
 import pandas as pd
 import json
 import time
 import io
 import concurrent.futures
-from threading import Lock
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 
 # 🔥 Normalisasi nama
 def clean(s: str) -> str:
@@ -57,40 +58,22 @@ def proses_satu(args):
         "hasil": hasil
     }
 
-# 🔥 STREAMING — concurrent, ordered emit
-def generate_stream(file) -> str:
+def generate_stream(file):
     df = pd.read_excel(file)
-
-    # Normalisasi kolom ke lowercase
     df.columns = [c.strip().lower() for c in df.columns]
-
     total = len(df)
-    yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
-
+    
     rows = list(df.iterrows())
 
-    # Proses concurrent dengan max 5 worker (sesuaikan limit API bank)
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(proses_satu, row): idx for idx, row in enumerate(rows)}
-        results = [None] * len(rows)
 
         for future in concurrent.futures.as_completed(futures):
             idx = futures[future]
-            try:
-                results[idx] = future.result()
-            except Exception as e:
-                results[idx] = {
-                    "type": "result",
-                    "index": idx + 1,
-                    "nama": "-", "rekening": "-", "bank": "-",
-                    "nama_bank": "-", "hasil": f"ERROR: {str(e)}"
-                }
-
-        # Emit hasil dalam urutan
-        for data in results:
-            yield f"data: {json.dumps(data)}\n\n"
-
-    yield f"data: {json.dumps({'type':'done','total':total})}\n\n"
+            result = future.result()
+            socketio.emit('result', result)
+        
+        socketio.emit('done', {'total': total})
 
 @app.route('/')
 def index():
@@ -99,19 +82,12 @@ def index():
 @app.route('/stream', methods=['POST'])
 def stream():
     file = request.files['file']
-    return Response(
-        generate_stream(file),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
-    )
+    socketio.start_background_task(target=generate_stream, file=file)
+    return '', 200  # No content return for this endpoint
 
 @app.route('/template')
 def download_template():
     df = pd.DataFrame(columns=['nama', 'rekening', 'bank'])
-    # Contoh data
     df.loc[0] = ['Budi Santoso', '1234567890', 'BCA']
     df.loc[1] = ['Siti Rahayu', '0987654321', 'Mandiri']
 
@@ -129,7 +105,7 @@ def download_template():
 @app.route('/download', methods=['POST'])
 def download_hasil():
     data = request.json.get('data', [])
-    fmt = request.json.get('format', 'xlsx')  # 'xlsx' or 'csv'
+    fmt = request.json.get('format', 'xlsx')
     df = pd.DataFrame(data, columns=['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Hasil'])
 
     buf = io.BytesIO()
@@ -149,4 +125,4 @@ def download_hasil():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, debug=True)
