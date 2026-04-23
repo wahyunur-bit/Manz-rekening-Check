@@ -12,12 +12,12 @@ body{
   font-family:sans-serif;
   padding:30px;
 }
-
 .wrap{max-width:900px;margin:auto}
 
 h1{margin-bottom:5px}
 .sub{color:#64748b;margin-bottom:20px}
 
+/* drop */
 .drop{
   border:2px dashed #2d3748;
   padding:40px;
@@ -26,9 +26,16 @@ h1{margin-bottom:5px}
   cursor:pointer;
   margin-bottom:10px;
 }
-
 .drop:hover{border-color:#60a5fa}
 
+/* file name */
+.file-name{
+  margin-bottom:10px;
+  color:#93c5fd;
+  font-size:13px;
+}
+
+/* button */
 button{
   width:100%;
   padding:12px;
@@ -39,41 +46,14 @@ button{
   cursor:pointer;
   margin-bottom:15px;
 }
+button:hover{background:#2563eb}
 
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:20px;
-}
-
-th,td{
-  padding:10px;
-  border-bottom:1px solid #1e293b;
-}
-
-th{
-  background:#161b27;
-  text-align:left;
-  color:#94a3b8;
-}
-
-.badge{
-  padding:4px 10px;
-  border-radius:20px;
-  font-size:12px;
-  font-weight:bold;
-}
-
-.match{background:#052e16;color:#4ade80}
-.beda{background:#2d1a00;color:#fbbf24}
-.tidak{background:#3b1212;color:#f87171}
-
+/* cards */
 .cards{
   display:flex;
   gap:10px;
   margin-top:15px;
 }
-
 .card{
   flex:1;
   background:#161b27;
@@ -81,9 +61,35 @@ th{
   border-radius:10px;
   text-align:center;
 }
-
 .num{font-size:20px;font-weight:bold}
 .label{font-size:12px;color:#64748b}
+
+/* table */
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:20px;
+}
+th,td{
+  padding:10px;
+  border-bottom:1px solid #1e293b;
+}
+th{
+  background:#161b27;
+  text-align:left;
+  color:#94a3b8;
+}
+
+/* badge */
+.badge{
+  padding:4px 10px;
+  border-radius:20px;
+  font-size:12px;
+  font-weight:bold;
+}
+.match{background:#052e16;color:#4ade80}
+.beda{background:#2d1a00;color:#fbbf24}
+.tidak{background:#3b1212;color:#f87171}
 </style>
 </head>
 
@@ -94,17 +100,20 @@ th{
 <p class="sub">Upload Excel: nama, rekening, bank</p>
 
 <div class="drop" onclick="fi.click()">
-  Klik / Drag file Excel
+  📁 Klik / Drag file Excel
 </div>
 
 <input type="file" id="fi" hidden>
+
+<div id="fileName" class="file-name"></div>
+
 <button onclick="start()">Proses</button>
 
 <div class="cards">
-  <div class="card"><div id="t">0</div><div class="label">Total</div></div>
-  <div class="card"><div id="m">0</div><div class="label">Match</div></div>
-  <div class="card"><div id="b">0</div><div class="label">Beda Nama</div></div>
-  <div class="card"><div id="x">0</div><div class="label">Tidak Valid</div></div>
+  <div class="card"><div id="t" class="num">0</div><div class="label">Total</div></div>
+  <div class="card"><div id="m" class="num">0</div><div class="label">Match</div></div>
+  <div class="card"><div id="b" class="num">0</div><div class="label">Beda Nama</div></div>
+  <div class="card"><div id="x" class="num">0</div><div class="label">Tidak Valid</div></div>
 </div>
 
 <table>
@@ -128,12 +137,16 @@ let file=null;
 
 const fi=document.getElementById('fi');
 const tb=document.getElementById('tb');
+const fileName=document.getElementById('fileName');
 
 let total=0,match=0,beda=0,tidak=0;
 
 fi.onchange=e=>{
   file=e.target.files[0];
-}
+  if(file){
+    fileName.innerText="📄 "+file.name;
+  }
+};
 
 function update(){
   document.getElementById('t').innerText=total;
@@ -143,7 +156,10 @@ function update(){
 }
 
 function start(){
-  if(!file) return alert('Upload file dulu');
+  if(!file){
+    alert('Upload file dulu');
+    return;
+  }
 
   tb.innerHTML='';
   total=match=beda=tidak=0;
@@ -169,10 +185,15 @@ function start(){
 
         lines.forEach(line=>{
           if(!line.startsWith('data:')) return;
+
           const d=JSON.parse(line.slice(5));
 
           if(d.type==='result'){
             render(d);
+          }
+
+          if(d.type==='fatal'){
+            alert(d.error);
           }
         });
 
