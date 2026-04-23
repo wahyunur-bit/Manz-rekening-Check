@@ -3,6 +3,14 @@ let results = [];
 function upload() {
     const file = document.getElementById("file").files[0];
 
+    if (!file) {
+        alert("Pilih file dulu");
+        return;
+    }
+
+    document.getElementById("table").innerHTML = "";
+    results = [];
+
     const formData = new FormData();
     formData.append("file", file);
 
@@ -39,19 +47,15 @@ function upload() {
     });
 }
 
-function addRow(data) {
-    const table = document.getElementById("table");
-
-    table.insertAdjacentHTML("beforeend", `
+function addRow(d) {
+    document.getElementById("table").insertAdjacentHTML("beforeend", `
         <tr>
-            <td>${data.index}</td>
-            <td>${data.nama}</td>
-            <td>${data.rekening}</td>
-            <td>${data.bank}</td>
-            <td>${data.nama_bank}</td>
-            <td>${data.hasil}</td>
+            <td>${d.index}</td>
+            <td>${d.nama}</td>
+            <td>${d.rekening}</td>
+            <td>${d.bank}</td>
+            <td>${d.nama_bank}</td>
+            <td>${d.hasil}</td>
         </tr>
     `);
-
-    window.scrollTo(0, document.body.scrollHeight);
 }
