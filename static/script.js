@@ -1,38 +1,57 @@
-async function uploadFile() {
-    const fileInput = document.getElementById("fileInput").files[0];
+let results = [];
 
-    if (!fileInput) {
-        alert("Pilih file dulu!");
-        return;
-    }
+function upload() {
+    const file = document.getElementById("file").files[0];
 
     const formData = new FormData();
-    formData.append("file", fileInput);
+    formData.append("file", file);
 
-    const res = await fetch("/upload", {
+    fetch("/stream", {
         method: "POST",
         body: formData
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        function read() {
+            reader.read().then(({ done, value }) => {
+                if (done) return;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n\n");
+
+                lines.forEach(line => {
+                    if (line.startsWith("data:")) {
+                        const data = JSON.parse(line.replace("data: ", ""));
+
+                        if (data.type === "result") {
+                            results.push(data);
+                            addRow(data);
+                        }
+                    }
+                });
+
+                read();
+            });
+        }
+
+        read();
     });
+}
 
-    const data = await res.json();
+function addRow(data) {
+    const table = document.getElementById("table");
 
-    let table = "<tr><th>Nama</th><th>Rekening</th><th>Bank</th><th>Nama Bank</th><th>Status</th></tr>";
+    table.insertAdjacentHTML("beforeend", `
+        <tr>
+            <td>${data.index}</td>
+            <td>${data.nama}</td>
+            <td>${data.rekening}</td>
+            <td>${data.bank}</td>
+            <td>${data.nama_bank}</td>
+            <td>${data.hasil}</td>
+        </tr>
+    `);
 
-    data.forEach(row => {
-        let color = "black";
-
-        if (row.status === "MATCH") color = "green";
-        if (row.status === "MIRIP") color = "orange";
-        if (row.status === "SALAH" || row.status === "INVALID") color = "red";
-
-        table += `<tr style="color:${color}">
-            <td>${row.nama}</td>
-            <td>${row.rekening}</td>
-            <td>${row.bank}</td>
-            <td>${row.nama_bank}</td>
-            <td>${row.status}</td>
-        </tr>`;
-    });
-
-    document.getElementById("resultTable").innerHTML = table;
+    window.scrollTo(0, document.body.scrollHeight);
 }
