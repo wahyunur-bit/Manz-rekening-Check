@@ -1,7 +1,4 @@
 flask
 pandas
-requests
 openpyxl
-urllib3
-gevent
 gunicorn
