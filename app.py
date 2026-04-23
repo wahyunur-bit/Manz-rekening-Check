@@ -12,20 +12,50 @@ from io import BytesIO
 app = Flask(__name__)
 
 API_KEY = os.environ.get("APICOID_API_KEY")
+
 print("=" * 40)
-print("API KEY:", "ADA" if API_KEY else "TIDAK ADA — set env APICOID_API_KEY")
+print("API KEY:", "ADA" if API_KEY else "TIDAK ADA")
 print("=" * 40)
 
+# =========================
+# CONFIG
+# =========================
+
+BANK_MAPPING = {
+    "MANDIRI": "mandiri",
+    "BCA": "bca",
+    "BNI": "bni",
+    "BRI": "bri",
+    "CIMB": "cimb",
+    "PERMATA": "permata"
+}
+
+def normalize_nama(nama):
+    nama = nama.upper()
+    nama = nama.replace(".", "").replace(",", "")
+    nama = " ".join(nama.split())
+    return nama
+
+# =========================
+# SESSION (RETRY)
+# =========================
 
 def create_session():
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     return session
 
 session = create_session()
 
+# =========================
+# VALIDASI FORMAT
+# =========================
 
 def validasi_format_rekening(rekening):
     if not rekening.isdigit():
@@ -34,12 +64,17 @@ def validasi_format_rekening(rekening):
         return False, "Panjang nomor rekening tidak wajar"
     return True, ""
 
+# =========================
+# HIT API
+# =========================
 
 def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
-        return {"error": "API key tidak ada. Set env variable APICOID_API_KEY"}
+        return {"error": "API key tidak ada"}
 
-    # ✅ URL YANG BENAR sesuai dokumentasi
+    bank_code = BANK_MAPPING.get(bank_code.upper(), bank_code.lower())
+    account_name = normalize_nama(account_name)
+
     url = "https://use.api.co.id/validation/bank"
 
     try:
@@ -47,60 +82,64 @@ def cek_rekening(bank_code, account_number, account_name):
             url,
             headers={"x-api-co-id": API_KEY},
             params={
-                "bank_code": bank_code.lower(),
+                "bank_code": bank_code,
                 "account_number": account_number,
                 "account_name": account_name
             },
             timeout=15
         )
 
-        print(f"[API] {bank_code} {account_number} -> HTTP {response.status_code} | {response.text[:120]}")
+        print(f"[API] {bank_code} {account_number} -> {response.status_code}")
+        print("RESPONSE:", response.text[:200])
 
         if response.status_code == 401:
-            return {"error": "API Key tidak valid (401)"}
+            return {"error": "API Key tidak valid"}
         if response.status_code == 402:
-            return {"error": "Saldo points habis, top up di dashboard.api.co.id (402)"}
+            return {"error": "Saldo points habis"}
         if response.status_code == 403:
-            return {"error": "Akses ditolak, paket perlu upgrade (403)"}
-        if response.status_code == 422:
-            return {"error": f"Parameter tidak valid (422): {response.text[:200]}"}
+            return {"error": "Akses ditolak (upgrade paket)"}
         if response.status_code != 200:
-            return {"error": f"HTTP {response.status_code}: {response.text[:200]}"}
+            return {"error": f"HTTP {response.status_code}"}
 
         return response.json()
 
-    except requests.exceptions.Timeout:
-        return {"error": "Timeout — api.co.id tidak merespons dalam 15 detik"}
-    except requests.exceptions.ConnectionError as e:
-        return {"error": f"Koneksi gagal: {str(e)[:100]}"}
     except Exception as e:
         return {"error": str(e)}
 
+# =========================
+# PARSE ROW
+# =========================
 
 def parse_row(row):
     nama     = str(row.get("nama", "")).strip()
     rekening = str(row.get("rekening", "")).strip()
     bank     = str(row.get("bank", "")).strip()
+
     if rekening.endswith(".0"):
         rekening = rekening[:-2]
+
     return nama, rekening, bank
 
+# =========================
+# ROUTES
+# =========================
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "api_key": "ADA" if API_KEY else "TIDAK ADA"})
-
+    return jsonify({
+        "status": "ok",
+        "api_key": "ADA" if API_KEY else "TIDAK ADA"
+    })
 
 @app.route("/stream", methods=["POST"])
 def stream():
     if not API_KEY:
         def err():
-            yield f"data: {json.dumps({'type':'fatal','error':'API KEY belum diset di server'})}\n\n"
+            yield f"data: {json.dumps({'type':'fatal','error':'API KEY belum diset'})}\n\n"
         return Response(stream_with_context(err()), mimetype="text/event-stream")
 
     if "file" not in request.files:
@@ -112,74 +151,107 @@ def stream():
 
     def generate():
         try:
-            try:
-                df = pd.read_excel(BytesIO(file_bytes))
-            except Exception as e:
-                yield f"data: {json.dumps({'type':'fatal','error':f'File Excel tidak bisa dibaca: {str(e)}'})}\n\n"
-                return
-
+            df = pd.read_excel(BytesIO(file_bytes))
             df.columns = [str(c).lower().strip() for c in df.columns]
-            missing = [c for c in ["nama", "rekening", "bank"] if c not in df.columns]
-            if missing:
-                yield f"data: {json.dumps({'type':'fatal','error':f'Kolom tidak ditemukan: {missing}. Kolom ada: {list(df.columns)}'})}\n\n"
+
+            if not all(c in df.columns for c in ["nama", "rekening", "bank"]):
+                yield f"data: {json.dumps({'type':'fatal','error':'Kolom harus: nama, rekening, bank'})}\n\n"
                 return
 
             df = df.dropna(subset=["nama", "rekening"])
             total = len(df)
+
             yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
             for idx, (_, row) in enumerate(df.iterrows(), 1):
                 nama, rekening, bank = parse_row(row)
-                if not nama or nama.lower() in ["nan", "none", ""]:
-                    continue
 
-                base = {"type":"result","index":idx,"total":total,"nama":nama,"rekening":rekening,"bank":bank.upper()}
+                base = {
+                    "type": "result",
+                    "index": idx,
+                    "total": total,
+                    "nama": nama,
+                    "rekening": rekening,
+                    "bank": bank.upper()
+                }
 
                 valid, msg = validasi_format_rekening(rekening)
                 if not valid:
-                    yield f"data: {json.dumps({**base,'nama_di_bank':'-','score':0,'status':'FORMAT SALAH','keterangan':msg})}\n\n"
+                    yield f"data: {json.dumps({**base,'status':'FORMAT SALAH','keterangan':msg})}\n\n"
                     continue
 
                 res = cek_rekening(bank, rekening, nama)
 
                 if "error" in res:
-                    yield f"data: {json.dumps({**base,'nama_di_bank':'-','score':0,'status':'ERROR','keterangan':res['error']})}\n\n"
-                    time.sleep(0.3)
+                    yield f"data: {json.dumps({**base,'status':'ERROR','keterangan':res['error']})}\n\n"
                     continue
 
-                is_valid     = res.get("is_valid", False)
-                score        = res.get("score", 0) or 0
+                is_valid = res.get("is_valid", False)
+                score = res.get("score", 0) or 0
                 nama_di_bank = res.get("name") or "-"
-                note         = res.get("note", "")
+                note = res.get("note", "")
 
-                if is_valid and score >= 9:
-                    status, ket = "MATCH",       f"Nama cocok (score {score})"
-                elif is_valid and score >= 7:
-                    status, ket = "MIRIP",       f"Nama mirip, cek manual (score {score})"
+                # =========================
+                # LOGIC BARU (LEBIH AKURAT)
+                # =========================
+
+                if is_valid and score >= 8:
+                    status = "MATCH"
+                    ket = f"Nama cocok (score {score})"
+
+                elif is_valid and score >= 5:
+                    status = "MIRIP"
+                    ket = f"Nama mirip (score {score})"
+
+                elif is_valid:
+                    status = "VALID REKENING"
+                    ket = "Rekening valid, nama beda"
+
                 elif note == "Name was not returned":
-                    status, ket = "CEK MANUAL",  "Rekening valid, bank tidak kirim nama"
-                else:
-                    status, ket = "TIDAK COCOK", f"Nama tidak cocok (score {score})"
+                    status = "VALID TANPA NAMA"
+                    ket = "Bank tidak kirim nama"
 
-                yield f"data: {json.dumps({**base,'nama_di_bank':nama_di_bank,'score':score,'status':status,'keterangan':ket})}\n\n"
+                else:
+                    status = "TIDAK COCOK"
+                    ket = f"Nama tidak cocok (score {score})"
+
+                yield f"data: {json.dumps({
+                    **base,
+                    'nama_di_bank': nama_di_bank,
+                    'score': score,
+                    'status': status,
+                    'keterangan': ket
+                })}\n\n"
+
                 time.sleep(0.3)
 
             yield f"data: {json.dumps({'type':'done','total':total})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type':'fatal','error':f'Server error: {str(e)}','trace':traceback.format_exc()})}\n\n"
+            yield f"data: {json.dumps({
+                'type':'fatal',
+                'error': str(e),
+                'trace': traceback.format_exc()
+            })}\n\n"
 
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
-        headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"}
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
     )
 
+# =========================
+# RUN
+# =========================
 
 if __name__ == "__main__":
     if not API_KEY:
-        print("\nSet API key dulu:")
-        print("  Windows CMD : set APICOID_API_KEY=xxx")
-        print("  PowerShell  : $env:APICOID_API_KEY='xxx'")
-        print("  Linux/Mac   : export APICOID_API_KEY=xxx\n")
+        print("\nSET API KEY:")
+        print("Windows CMD : set APICOID_API_KEY=xxx")
+        print("PowerShell  : $env:APICOID_API_KEY='xxx'")
+        print("Linux/Mac   : export APICOID_API_KEY=xxx\n")
+
     app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
