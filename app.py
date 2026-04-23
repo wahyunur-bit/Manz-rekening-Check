@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask import Flask, render_template, request, Response, stream_with_context
 import requests
 import pandas as pd
 import os
@@ -7,10 +7,9 @@ import json
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from io import BytesIO
-from rapidfuzz import fuzz
 
 # =========================
-# INIT APP (FIX RAILWAY)
+# INIT APP
 # =========================
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -29,29 +28,18 @@ BANK_MAPPING = {
 }
 
 def normalize_nama(nama):
-    nama = nama.upper()
+    nama = str(nama).upper()
     nama = nama.replace(".", "").replace(",", "")
     nama = " ".join(nama.split())
     return nama
 
-def hitung_kemiripan(nama_input, nama_bank):
-    if not nama_bank:
-        return 0
-    return fuzz.token_sort_ratio(
-        normalize_nama(nama_input),
-        normalize_nama(nama_bank)
-    )
-
 # =========================
-# SESSION (ANTI TIMEOUT)
+# SESSION
 # =========================
 def create_session():
     session = requests.Session()
-    retries = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504]
-    )
+    retries = Retry(total=3, backoff_factor=1,
+                    status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     return session
@@ -63,9 +51,10 @@ session = create_session()
 # =========================
 def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
-        return {"error": "API key tidak ada"}
+        return {}
 
     bank_code = BANK_MAPPING.get(bank_code.upper(), bank_code.lower())
+
     url = "https://use.api.co.id/validation/bank"
 
     try:
@@ -80,15 +69,13 @@ def cek_rekening(bank_code, account_number, account_name):
             timeout=15
         )
 
-        print("[DEBUG]", response.text)
-
         if response.status_code != 200:
-            return {"error": f"HTTP {response.status_code}"}
+            return {}
 
         return response.json()
 
-    except Exception as e:
-        return {"error": str(e)}
+    except:
+        return {}
 
 # =========================
 # PARSE DATA
@@ -129,62 +116,23 @@ def stream():
 
                 res = cek_rekening(bank, rekening, nama)
 
-                if "error" in res:
-                    yield f"data: {json.dumps({
-                        'type':'result',
-                        'index': i,
-                        'nama': nama,
-                        'rekening': rekening,
-                        'bank': bank,
-                        'nama_di_bank': '-',
-                        'similarity': 0,
-                        'status':'ERROR',
-                        'keterangan':res['error']
-                    })}\n\n"
-                    continue
-
-                is_valid = res.get("is_valid", False)
-                nama_api = res.get("name")
-                note = res.get("note", "")
+                nama_api = res.get("name") if isinstance(res, dict) else None
 
                 # =========================
                 # NAMA WAJIB ADA
                 # =========================
-                if nama_api and nama_api.strip():
+                if nama_api and str(nama_api).strip():
                     nama_di_bank = nama_api
-                    sumber = "API"
                 else:
                     nama_di_bank = normalize_nama(nama)
-                    sumber = "INPUT"
-
-                similarity = hitung_kemiripan(nama, nama_di_bank)
 
                 # =========================
-                # LOGIC FINAL
+                # MATCH / TIDAK MATCH
                 # =========================
-                if is_valid:
-
-                    if sumber == "API":
-
-                        if similarity >= 85:
-                            status = "MATCH"
-                            ket = f"Sangat cocok ({similarity}%)"
-
-                        elif similarity >= 60:
-                            status = "MIRIP"
-                            ket = f"Cukup mirip ({similarity}%)"
-
-                        else:
-                            status = "VALID REKENING"
-                            ket = f"Nama beda ({similarity}%)"
-
-                    else:
-                        status = "VALID TANPA NAMA API"
-                        ket = "Rekening valid, nama dari input"
-
+                if normalize_nama(nama) == normalize_nama(nama_di_bank):
+                    hasil = "MATCH"
                 else:
-                    status = "TIDAK COCOK"
-                    ket = "Rekening tidak valid"
+                    hasil = "TIDAK MATCH"
 
                 yield f"data: {json.dumps({
                     'type':'result',
@@ -193,26 +141,20 @@ def stream():
                     'rekening': rekening,
                     'bank': bank,
                     'nama_di_bank': nama_di_bank,
-                    'sumber_nama': sumber,
-                    'similarity': similarity,
-                    'status': status,
-                    'keterangan': ket
+                    'hasil': hasil
                 })}\n\n"
 
-                time.sleep(0.2)
+                time.sleep(0.1)
 
             yield f"data: {json.dumps({'type':'done'})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({
-                'type':'fatal',
-                'error': str(e)
-            })}\n\n"
+            yield f"data: {json.dumps({'type':'fatal','error':str(e)})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 # =========================
-# RUN (FIX RAILWAY)
+# RUN (RAILWAY FIX)
 # =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
