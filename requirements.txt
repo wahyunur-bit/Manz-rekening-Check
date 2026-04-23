@@ -1,6 +1,5 @@
 flask
-requests
 pandas
+requests
 openpyxl
-rapidfuzz
-gunicorn
+urllib3
