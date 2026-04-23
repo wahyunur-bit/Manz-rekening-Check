@@ -1,507 +1,54 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Validasi Rekening Bank</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg:        #0b0f1a;
-    --surface:   #111827;
-    --surface2:  #1a2235;
-    --border:    #1f2d45;
-    --accent:    #3b82f6;
-    --accent2:   #06b6d4;
-    --green:     #10b981;
-    --red:       #ef4444;
-    --yellow:    #f59e0b;
-    --text:      #e2e8f0;
-    --muted:     #64748b;
-    --mono:      'Space Mono', monospace;
-    --sans:      'DM Sans', sans-serif;
-  }
-
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 14px;
-    min-height: 100vh;
-    padding: 32px 24px 60px;
-  }
-
-  /* ── HEADER ── */
-  header {
-    text-align: center;
-    margin-bottom: 36px;
-  }
-  header h1 {
-    font-family: var(--mono);
-    font-size: clamp(18px, 3vw, 26px);
-    font-weight: 700;
-    letter-spacing: -0.5px;
-    background: linear-gradient(135deg, #60a5fa, #06b6d4);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-  header p {
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 4px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-
-  /* ── CARD ── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 900px;
-    margin: 0 auto 20px;
-  }
-
-  /* ── DROP ZONE ── */
-  #dropzone {
-    border: 2px dashed var(--border);
-    border-radius: 10px;
-    padding: 40px 20px;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color .2s, background .2s;
-    position: relative;
-  }
-  #dropzone:hover, #dropzone.drag { border-color: var(--accent); background: rgba(59,130,246,.05); }
-  #dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
-  #dropzone .icon {
-    font-size: 32px;
-    margin-bottom: 10px;
-    display: block;
-    filter: grayscale(0.5);
-  }
-  #dropzone .label {
-    color: var(--muted);
-    font-size: 13px;
-  }
-  #dropzone .label strong { color: var(--accent); font-weight: 600; }
-  #file-name {
-    margin-top: 12px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--accent2);
-    min-height: 18px;
-  }
-
-  /* ── ACTIONS ── */
-  .actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 20px;
-    align-items: center;
-  }
-  .btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 9px 18px;
-    border-radius: 8px;
-    border: none;
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity .15s, transform .1s;
-  }
-  .btn:active { transform: scale(.97); }
-  .btn:disabled { opacity: .4; cursor: default; }
-  .btn-primary  { background: var(--accent); color: #fff; }
-  .btn-outline  { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .btn-green    { background: var(--green); color: #fff; }
-  .btn-cyan     { background: var(--accent2); color: #0b0f1a; }
-
-  /* ── PROGRESS ── */
-  #progress-wrap {
-    margin-top: 18px;
-    display: none;
-  }
-  .prog-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-  .prog-bar {
-    height: 4px;
-    background: var(--border);
-    border-radius: 99px;
-    overflow: hidden;
-  }
-  .prog-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    transition: width .3s ease;
-    border-radius: 99px;
-  }
-
-  /* ── STATS ROW ── */
-  #stats-row {
-    display: none;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 16px;
-  }
-  .stat-pill {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 16px;
-    font-size: 12px;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
-  .stat-val { font-family: var(--mono); font-weight: 700; font-size: 16px; }
-  .dot-match  { background: var(--green); }
-  .dot-notsame{ background: var(--yellow); }
-  .dot-invalid{ background: var(--red); }
-  .dot-total  { background: var(--accent); }
-
-  /* ── TABLE ── */
-  #table-wrap {
-    max-height: 440px;
-    overflow-y: auto;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-  }
-  #table-wrap::-webkit-scrollbar { width: 5px; }
-  #table-wrap::-webkit-scrollbar-track { background: var(--surface); }
-  #table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  thead th {
-    background: var(--surface2);
-    padding: 11px 14px;
-    text-align: left;
-    font-family: var(--mono);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .5px;
-    color: var(--muted);
-    position: sticky; top: 0; z-index: 1;
-    border-bottom: 1px solid var(--border);
-  }
-  tbody tr {
-    border-bottom: 1px solid var(--border);
-    animation: rowIn .3s ease both;
-  }
-  tbody tr:last-child { border-bottom: none; }
-  tbody td {
-    padding: 10px 14px;
-    vertical-align: middle;
-  }
-  tbody tr:hover td { background: var(--surface2); }
-
-  @keyframes rowIn {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  /* ── BADGE ── */
-  .badge {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 10px;
-    border-radius: 99px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: var(--mono);
-    letter-spacing: .3px;
-  }
-  .badge-match   { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
-  .badge-notsame { background: rgba(245,158,11,.15);  color: var(--yellow); border: 1px solid rgba(245,158,11,.3); }
-  .badge-invalid { background: rgba(239,68,68,.15);   color: var(--red);    border: 1px solid rgba(239,68,68,.3); }
-  .badge-error   { background: rgba(100,116,139,.15); color: var(--muted);  border: 1px solid var(--border); }
-
-  /* ── NO */
-  td:first-child { color: var(--muted); font-family: var(--mono); font-size: 12px; width: 40px; }
-
-  /* ── DOWNLOAD ROW ── */
-  #dl-row { display: none; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-
-  /* ── TOAST ── */
-  #toast {
-    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(60px);
-    background: var(--surface2); border: 1px solid var(--border);
-    padding: 10px 20px; border-radius: 10px; font-size: 13px;
-    transition: transform .25s; z-index: 99; pointer-events: none;
-  }
-  #toast.show { transform: translateX(-50%) translateY(0); }
-
-  /* ── SKELETON ── */
-  .skeleton {
-    animation: shimmer 1.2s infinite linear;
-    background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
-    background-size: 200% 100%;
-    border-radius: 4px;
-    height: 14px;
-  }
-  @keyframes shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-</style>
+    <title>Validasi Rekening</title>
+    <script src="/static/script.js"></script>
+    <style>
+        body {
+            background: #0f172a;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+        }
+        .box {
+            margin: 40px auto;
+            padding: 20px;
+            width: 80%;
+            background: #1e293b;
+            border-radius: 10px;
+        }
+        table {
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+        }
+    </style>
 </head>
 <body>
 
-<header>
-  <h1>⚡ Validasi Rekening Bank</h1>
-  <p>Upload Excel → Validasi otomatis → Download hasil</p>
-</header>
+<div class="box">
+    <h2>⚡ Validasi Rekening Bank</h2>
 
-<!-- Upload card -->
-<div class="card">
-  <div id="dropzone">
-    <input type="file" id="fileInput" accept=".xlsx,.xls">
-    <span class="icon">📂</span>
-    <div class="label"><strong>Klik atau drag</strong> file Excel di sini</div>
-    <div class="label" style="margin-top:4px;font-size:11px;">Format: .xlsx / .xls — Kolom: nama, rekening, bank</div>
-  </div>
-  <div id="file-name"></div>
+    <input type="file" id="file">
+    <button onclick="upload()">Proses</button>
+    <a href="/template">Download Template</a>
 
-  <div class="actions">
-    <button class="btn btn-primary" id="btnProses" disabled>▶ Proses</button>
-    <button class="btn btn-outline" onclick="downloadTemplate()">⬇ Download Template</button>
-  </div>
-
-  <div id="progress-wrap">
-    <div class="prog-label">
-      <span id="prog-text">Memproses…</span>
-      <span id="prog-count">0 / 0</span>
-    </div>
-    <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
-  </div>
-</div>
-
-<!-- Result card -->
-<div class="card" id="result-card" style="display:none;">
-  <div id="stats-row">
-    <div class="stat-pill"><span class="stat-dot dot-total"></span> Total <span class="stat-val" id="s-total">0</span></div>
-    <div class="stat-pill"><span class="stat-dot dot-match"></span> Match <span class="stat-val" id="s-match">0</span></div>
-    <div class="stat-pill"><span class="stat-dot dot-notsame"></span> Tidak Sama <span class="stat-val" id="s-diff">0</span></div>
-    <div class="stat-pill"><span class="stat-dot dot-invalid"></span> Tidak Valid <span class="stat-val" id="s-inv">0</span></div>
-  </div>
-
-  <div id="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Nama</th>
-          <th>Rekening</th>
-          <th>Bank</th>
-          <th>Nama Bank</th>
-          <th>Hasil</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>No</th>
+                <th>Nama</th>
+                <th>Rekening</th>
+                <th>Bank</th>
+                <th>Nama Bank</th>
+                <th>Hasil</th>
+            </tr>
+        </thead>
+        <tbody id="table"></tbody>
     </table>
-  </div>
-
-  <div id="dl-row">
-    <button class="btn btn-green" onclick="downloadHasil('xlsx')">⬇ Download XLS</button>
-    <button class="btn btn-cyan"  onclick="downloadHasil('csv')">⬇ Download CSV</button>
-  </div>
 </div>
 
-<div id="toast"></div>
-
-<script>
-  const fileInput  = document.getElementById('fileInput');
-  const dropzone   = document.getElementById('dropzone');
-  const fileName   = document.getElementById('file-name');
-  const btnProses  = document.getElementById('btnProses');
-  const tbody      = document.getElementById('tbody');
-  const progWrap   = document.getElementById('progress-wrap');
-  const progFill   = document.getElementById('prog-fill');
-  const progText   = document.getElementById('prog-text');
-  const progCount  = document.getElementById('prog-count');
-  const resultCard = document.getElementById('result-card');
-  const statsRow   = document.getElementById('stats-row');
-  const dlRow      = document.getElementById('dl-row');
-
-  let resultsData = []; // for download
-  let stats = { match:0, diff:0, inv:0, total:0 };
-
-  // ── FILE PICK ──
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) {
-      fileName.textContent = '📄 ' + fileInput.files[0].name;
-      btnProses.disabled = false;
-    }
-  });
-
-  // ── DRAG & DROP ──
-  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
-  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
-  dropzone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropzone.classList.remove('drag');
-    fileInput.files = e.dataTransfer.files;
-    if (fileInput.files[0]) {
-      fileName.textContent = '📄 ' + fileInput.files[0].name;
-      btnProses.disabled = false;
-    }
-  });
-
-  // ── PROSES ──
-  btnProses.addEventListener('click', () => {
-    if (!fileInput.files[0]) return;
-
-    // reset
-    tbody.innerHTML = '';
-    resultsData = [];
-    stats = { match:0, diff:0, inv:0, total:0 };
-    updateStats();
-    resultCard.style.display = 'block';
-    statsRow.style.display   = 'flex';
-    dlRow.style.display      = 'none';
-    progWrap.style.display   = 'block';
-    progFill.style.width     = '0%';
-    progText.textContent     = 'Memproses…';
-    btnProses.disabled       = true;
-
-    const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
-
-    fetch('/stream', { method: 'POST', body: fd }).then(res => {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      function read() {
-        reader.read().then(({ done, value }) => {
-          if (done) return;
-          buffer += decoder.decode(value, { stream: true });
-
-          const events = buffer.split('\n\n');
-          buffer = events.pop(); // last possibly incomplete
-
-          events.forEach(evt => {
-            const line = evt.replace(/^data: /, '').trim();
-            if (!line) return;
-            try {
-              const d = JSON.parse(line);
-              handleEvent(d);
-            } catch(e) {}
-          });
-
-          read();
-        });
-      }
-      read();
-    }).catch(err => {
-      showToast('❌ Koneksi gagal: ' + err.message);
-      btnProses.disabled = false;
-    });
-  });
-
-  function handleEvent(d) {
-    if (d.type === 'start') {
-      stats.total = d.total;
-      document.getElementById('s-total').textContent = d.total;
-      progCount.textContent = '0 / ' + d.total;
-    }
-    else if (d.type === 'result') {
-      addRow(d);
-      resultsData.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
-
-      if      (d.hasil === 'MATCH')        stats.match++;
-      else if (d.hasil === 'TIDAK SAMA')   stats.diff++;
-      else                                  stats.inv++;
-      updateStats();
-
-      const pct = Math.round((d.index / stats.total) * 100);
-      progFill.style.width = pct + '%';
-      progCount.textContent = d.index + ' / ' + stats.total;
-    }
-    else if (d.type === 'done') {
-      progText.textContent = '✅ Selesai';
-      progFill.style.width = '100%';
-      btnProses.disabled   = false;
-      dlRow.style.display  = 'flex';
-      showToast('✅ Validasi selesai — ' + d.total + ' data diproses');
-    }
-  }
-
-  function addRow(d) {
-    const tr = document.createElement('tr');
-    const badgeClass = {
-      'MATCH':        'badge-match',
-      'TIDAK SAMA':   'badge-notsame',
-      'TIDAK VALID':  'badge-invalid',
-      'ERROR':        'badge-error'
-    }[d.hasil] || 'badge-error';
-
-    tr.innerHTML = `
-      <td>${d.index}</td>
-      <td>${esc(d.nama)}</td>
-      <td style="font-family:var(--mono);font-size:12px;">${esc(d.rekening)}</td>
-      <td>${esc(d.bank)}</td>
-      <td>${esc(d.nama_bank)}</td>
-      <td><span class="badge ${badgeClass}">${d.hasil}</span></td>
-    `;
-    tbody.appendChild(tr);
-    // auto-scroll
-    const wrap = document.getElementById('table-wrap');
-    wrap.scrollTop = wrap.scrollHeight;
-  }
-
-  function updateStats() {
-    document.getElementById('s-match').textContent = stats.match;
-    document.getElementById('s-diff').textContent  = stats.diff;
-    document.getElementById('s-inv').textContent   = stats.inv;
-  }
-
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  // ── DOWNLOAD TEMPLATE ──
-  function downloadTemplate() {
-    window.location.href = '/template';
-  }
-
-  // ── DOWNLOAD HASIL ──
-  function downloadHasil(fmt) {
-    if (!resultsData.length) { showToast('Belum ada data.'); return; }
-    fetch('/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: resultsData, format: fmt })
-    }).then(res => res.blob()).then(blob => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = fmt === 'csv' ? 'hasil_validasi.csv' : 'hasil_validasi.xlsx';
-      a.click();
-    });
-  }
-
-  // ── TOAST ──
-  function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 3000);
-  }
-</script>
 </body>
 </html>
