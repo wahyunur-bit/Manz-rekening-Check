@@ -13,9 +13,12 @@ API_KEY = os.getenv("APICOID_API_KEY")
 BASE_URL = "https://api.api.co.id/v1/bank/account"
 
 WHITESPACE = re.compile(r'\s+')
+
 def clean(s):
     return WHITESPACE.sub('', str(s).upper())
 
+
+# 🔍 CEK REKENING
 def cek_rekening(nama, rekening, bank):
     try:
         headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -24,7 +27,12 @@ def cek_rekening(nama, rekening, bank):
             "account_number": rekening
         }
 
-        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=5)
+        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=3)
+
+        if res.status_code != 200:
+            print("API ERROR:", res.text)
+            return None
+
         data = res.json()
 
         if not data.get("success"):
@@ -33,8 +41,11 @@ def cek_rekening(nama, rekening, bank):
         return data["data"]["account_name"]
 
     except Exception as e:
+        print("ERROR:", e)
         return None
 
+
+# 🔄 PROSES 1 BARIS
 def proses_satu(args):
     i, row = args
 
@@ -61,6 +72,8 @@ def proses_satu(args):
         "hasil": hasil
     }
 
+
+# ⚡ STREAM GENERATOR (REALTIME FIX)
 def generate_stream(file):
     try:
         df = pd.read_excel(file)
@@ -70,8 +83,15 @@ def generate_stream(file):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for data in executor.map(proses_satu, enumerate(records)):
+        # ⚡ IMPORTANT: realtime streaming
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [
+                executor.submit(proses_satu, (i, row))
+                for i, row in enumerate(records)
+            ]
+
+            for future in concurrent.futures.as_completed(futures):
+                data = future.result()
                 yield f"data: {json.dumps(data)}\n\n"
 
         yield f"data: {json.dumps({'type':'done','total':total})}\n\n"
@@ -79,13 +99,16 @@ def generate_stream(file):
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/stream', methods=['POST'])
 def stream():
     file = request.files['file']
+
     return Response(
         generate_stream(file),
         mimetype='text/event-stream',
@@ -95,6 +118,7 @@ def stream():
             'Connection': 'keep-alive'
         }
     )
+
 
 @app.route('/template')
 def download_template():
@@ -110,13 +134,13 @@ def download_template():
 
     return send_file(buf, as_attachment=True, download_name='template.xlsx')
 
+
 @app.route('/download', methods=['POST'])
 def download():
     data = request.json.get('data', [])
     fmt = request.json.get('format', 'xlsx')
 
     df = pd.DataFrame(data)
-
     buf = io.BytesIO()
 
     if fmt == 'csv':
@@ -128,5 +152,6 @@ def download():
         buf.seek(0)
         return send_file(buf, as_attachment=True, download_name='hasil.xlsx')
 
+
 if __name__ == '__main__':
-    app.run()
+    app.run(host="0.0.0.0", port=8080)
