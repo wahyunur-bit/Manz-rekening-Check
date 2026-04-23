@@ -1,6 +1,5 @@
 flask
-gunicorn
-pandas
 requests
+pandas
 openpyxl
-python-dotenv
+rapidfuzz
