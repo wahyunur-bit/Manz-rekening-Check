@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, send_file
+from flask import Flask, request, Response, render_template, send_file, jsonify
 import pandas as pd
 import json
 import time
@@ -9,28 +9,36 @@ from threading import Lock
 app = Flask(__name__)
 
 # 🔥 Normalisasi nama
-def clean(s):
+def clean(s: str) -> str:
     return ''.join(str(s).upper().split())
 
 # ⚠️ SIMULASI API BANK — GANTI DENGAN API ASLI
-def cek_rekening(nama, rekening, bank):
+def cek_rekening(nama: str, rekening: str, bank: str) -> str:
     """
     Ganti fungsi ini dengan API bank asli.
     Return: nama_bank (string) atau None jika gagal
     """
     time.sleep(0.3)  # simulasi latency API
-    return nama     # simulasi: nama_bank = nama (anggap valid)
+    return nama  # simulasi: nama_bank = nama (anggap valid)
 
 def proses_satu(args):
     i, row = args
-    nama     = str(row.get('nama', '')).strip()
+    nama = str(row.get('nama', '')).strip()
     rekening = str(row.get('rekening', '')).strip()
-    bank     = str(row.get('bank', '')).strip()
+    bank = str(row.get('bank', '')).strip()
 
     try:
         nama_bank = cek_rekening(nama, rekening, bank)
     except Exception as e:
-        nama_bank = None
+        return {
+            "type": "result",
+            "index": i + 1,
+            "nama": nama,
+            "rekening": rekening,
+            "bank": bank,
+            "nama_bank": "-", 
+            "hasil": f"ERROR: {str(e)}"
+        }
 
     if not nama_bank or nama_bank == '-':
         hasil = "TIDAK VALID"
@@ -50,10 +58,10 @@ def proses_satu(args):
     }
 
 # 🔥 STREAMING — concurrent, ordered emit
-def generate_stream(file):
+def generate_stream(file) -> str:
     df = pd.read_excel(file)
 
-    # Normalisasi kolom lowercase
+    # Normalisasi kolom ke lowercase
     df.columns = [c.strip().lower() for c in df.columns]
 
     total = len(df)
@@ -61,7 +69,7 @@ def generate_stream(file):
 
     rows = list(df.iterrows())
 
-    # Proses concurrent, max 5 worker (sesuaikan limit API bank)
+    # Proses concurrent dengan max 5 worker (sesuaikan limit API bank)
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(proses_satu, row): idx for idx, row in enumerate(rows)}
         results = [None] * len(rows)
@@ -75,20 +83,18 @@ def generate_stream(file):
                     "type": "result",
                     "index": idx + 1,
                     "nama": "-", "rekening": "-", "bank": "-",
-                    "nama_bank": "-", "hasil": "ERROR"
+                    "nama_bank": "-", "hasil": f"ERROR: {str(e)}"
                 }
 
-        # Emit in order
+        # Emit hasil dalam urutan
         for data in results:
             yield f"data: {json.dumps(data)}\n\n"
 
     yield f"data: {json.dumps({'type':'done','total':total})}\n\n"
 
-
 @app.route('/')
 def index():
     return render_template('index.html')
-
 
 @app.route('/stream', methods=['POST'])
 def stream():
@@ -102,13 +108,12 @@ def stream():
         }
     )
 
-
 @app.route('/template')
 def download_template():
     df = pd.DataFrame(columns=['nama', 'rekening', 'bank'])
     # Contoh data
     df.loc[0] = ['Budi Santoso', '1234567890', 'BCA']
-    df.loc[1] = ['Siti Rahayu',  '0987654321', 'Mandiri']
+    df.loc[1] = ['Siti Rahayu', '0987654321', 'Mandiri']
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
@@ -121,12 +126,11 @@ def download_template():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-
 @app.route('/download', methods=['POST'])
 def download_hasil():
-    data    = request.json.get('data', [])
-    fmt     = request.json.get('format', 'xlsx')  # 'xlsx' or 'csv'
-    df = pd.DataFrame(data, columns=['No','Nama','Rekening','Bank','Nama Bank','Hasil'])
+    data = request.json.get('data', [])
+    fmt = request.json.get('format', 'xlsx')  # 'xlsx' or 'csv'
+    df = pd.DataFrame(data, columns=['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Hasil'])
 
     buf = io.BytesIO()
     if fmt == 'csv':
@@ -143,7 +147,6 @@ def download_hasil():
         return send_file(buf, as_attachment=True,
                          download_name='hasil_validasi.xlsx',
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
 
 if __name__ == '__main__':
     app.run(debug=True)
