@@ -5,50 +5,58 @@ import concurrent.futures
 
 app = Flask(__name__)
 
+# 🔑 API KEY dari Railway
 API_KEY = os.getenv("APICOID_API_KEY")
 
+# 🔥 Normalisasi nama
 WHITESPACE = re.compile(r'\s+')
 def clean(s):
     return WHITESPACE.sub('', str(s).upper())
 
+# 🔥 Mapping bank biar aman
 BANK_MAP = {
     "bca": "bca",
-    "mandiri": "mandiri",
     "bri": "bri",
     "bni": "bni",
+    "mandiri": "mandiri",
     "cimb": "cimb",
     "permata": "permata"
 }
 
+# 🔥 REAL API (sesuai docs kamu)
 def cek_rekening(nama, rekening, bank):
+    url = "https://use.api.co.id/validation/bank"
+
     bank = BANK_MAP.get(bank.lower(), bank.lower())
 
-    for _ in range(3):
+    payload = {
+        "account_number": rekening,
+        "bank_code": bank
+    }
+
+    headers = {
+        "x-api-key": API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    for _ in range(3):  # retry
         try:
-            res = requests.post(
-                "https://api.apicoid.com/v1/bank/account",
-                json={
-                    "account_number": rekening,
-                    "bank_code": bank
-                },
-                headers={
-                    "Authorization": f"Bearer {API_KEY}"
-                },
-                timeout=10
-            )
+            res = requests.post(url, json=payload, headers=headers, timeout=10)
 
             if res.status_code != 200:
+                time.sleep(0.5)
                 continue
 
             data = res.json()
 
-            if data.get("status") != "success":
+            if not data.get("is_valid"):
                 return None
 
-            return data["data"]["account_name"]
+            return data.get("name")
 
-        except:
-            time.sleep(0.3)
+        except Exception as e:
+            print("API ERROR:", e)
+            time.sleep(1)
 
     return None
 
@@ -82,8 +90,8 @@ def proses_satu(args):
 
 def generate_stream(file):
     df = pd.read_excel(file)
-    df.columns = [str(c).strip().lower() for c in df.columns]
 
+    df.columns = [str(c).strip().lower() for c in df.columns]
     records = df.to_dict('records')
     total = len(records)
 
@@ -105,6 +113,7 @@ def index():
 @app.route('/stream', methods=['POST'])
 def stream():
     file = request.files['file']
+
     return Response(
         generate_stream(file),
         mimetype='text/event-stream',
