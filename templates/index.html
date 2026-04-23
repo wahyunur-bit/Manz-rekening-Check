@@ -1,31 +1,203 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>Validasi Rekening</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Validasi Rekening Bank</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono&family=DM+Sans&display=swap" rel="stylesheet">
+
+<style>
+body {
+  background:#0b0f1a;
+  color:#e2e8f0;
+  font-family:'DM Sans',sans-serif;
+  padding:30px;
+}
+
+h1 {
+  text-align:center;
+  font-family:'Space Mono';
+  color:#60a5fa;
+}
+
+.card {
+  background:#111827;
+  padding:20px;
+  border-radius:10px;
+  max-width:900px;
+  margin:20px auto;
+}
+
+button {
+  padding:10px 15px;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+
+.primary { background:#3b82f6;color:white }
+.green { background:#10b981;color:white }
+
+table {
+  width:100%;
+  margin-top:20px;
+  border-collapse:collapse;
+}
+
+th,td {
+  padding:10px;
+  border-bottom:1px solid #1f2d45;
+}
+
+.badge {
+  padding:5px 10px;
+  border-radius:20px;
+  font-size:12px;
+}
+
+.match { background:#10b98133;color:#10b981 }
+.diff { background:#f59e0b33;color:#f59e0b }
+.invalid { background:#ef444433;color:#ef4444 }
+
+#progress { margin-top:10px }
+</style>
 </head>
+
 <body>
 
-<main class="container">
-    <h2>⚡ Validasi Rekening Bank</h2>
+<h1>⚡ Validasi Rekening Bank</h1>
 
-    <input type="file" id="file">
-    <button onclick="start()">Proses</button>
-    <a href="/template">Download Template</a>
+<div class="card">
 
-    <table>
-        <thead>
-            <tr>
-                <th>No</th><th>Nama</th><th>Rekening</th><th>Bank</th><th>Nama Bank</th><th>Hasil</th>
-            </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-    </table>
+<input type="file" id="file">
+<br><br>
 
-    <button onclick="download('xlsx')">Download XLSX</button>
-    <button onclick="download('csv')">Download CSV</button>
-</main>
+<button class="primary" onclick="proses()">Proses</button>
+<button onclick="downloadTemplate()">Download Template</button>
 
-<script src="/static/script.js"></script>
+<div id="progress"></div>
+
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>No</th>
+<th>Nama</th>
+<th>Rekening</th>
+<th>Bank</th>
+<th>Nama Bank</th>
+<th>Hasil</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<br>
+<button class="green" onclick="download('xlsx')">Download XLSX</button>
+<button class="green" onclick="download('csv')">Download CSV</button>
+
+</div>
+
+<script>
+
+let results = [];
+
+function proses() {
+  const file = document.getElementById('file').files[0];
+  if (!file) return alert('Pilih file dulu');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  fetch('/stream', { method:'POST', body:fd })
+  .then(res => {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    function read() {
+      reader.read().then(({done,value})=>{
+        if(done) return;
+
+        buffer += decoder.decode(value,{stream:true});
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+
+        parts.forEach(p=>{
+          const data = p.replace('data: ','');
+          if(!data) return;
+
+          const d = JSON.parse(data);
+          handle(d);
+        });
+
+        read();
+      });
+    }
+    read();
+  });
+}
+
+function handle(d) {
+
+  if (d.type === 'result') {
+
+    results.push([
+      d.index,
+      d.nama,
+      d.rekening,
+      d.bank,
+      d.nama_bank,
+      d.hasil
+    ]);
+
+    const tr = document.createElement('tr');
+
+    let cls = '';
+    if(d.hasil==='MATCH') cls='match';
+    else if(d.hasil==='TIDAK SAMA') cls='diff';
+    else cls='invalid';
+
+    tr.innerHTML = `
+      <td>${d.index}</td>
+      <td>${d.nama}</td>
+      <td>${d.rekening}</td>
+      <td>${d.bank}</td>
+      <td>${d.nama_bank}</td>
+      <td><span class="badge ${cls}">${d.hasil}</span></td>
+    `;
+
+    document.getElementById('tbody').appendChild(tr);
+  }
+
+  if (d.type === 'done') {
+    document.getElementById('progress').innerText = "Selesai ✔";
+  }
+}
+
+function downloadTemplate() {
+  window.location = '/template';
+}
+
+function download(fmt) {
+  fetch('/download',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({data:results,format:fmt})
+  })
+  .then(res=>res.blob())
+  .then(blob=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='hasil.'+fmt;
+    a.click();
+  });
+}
+
+</script>
+
 </body>
 </html>
