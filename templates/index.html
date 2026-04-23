@@ -1,244 +1,131 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Validasi Rekening Bank</title>
-
+<title>Validasi Rekening</title>
 <style>
-body{
-  background:#0d1117;
-  color:#e2e8f0;
-  font-family:sans-serif;
-  padding:30px;
-}
-.wrap{max-width:900px;margin:auto}
-
-h1{margin-bottom:5px}
-.sub{color:#64748b;margin-bottom:20px}
-
-/* drop */
-.drop{
-  border:2px dashed #2d3748;
-  padding:40px;
-  text-align:center;
-  border-radius:12px;
-  cursor:pointer;
-  margin-bottom:10px;
-}
-.drop:hover{border-color:#60a5fa}
-
-/* file name */
-.file-name{
-  margin-bottom:10px;
-  color:#93c5fd;
-  font-size:13px;
-}
-
-/* button */
-button{
-  width:100%;
-  padding:12px;
-  background:#3b82f6;
-  border:none;
-  color:white;
-  border-radius:8px;
-  cursor:pointer;
-  margin-bottom:15px;
-}
-button:hover{background:#2563eb}
-
-/* cards */
-.cards{
-  display:flex;
-  gap:10px;
-  margin-top:15px;
-}
-.card{
-  flex:1;
-  background:#161b27;
-  padding:10px;
-  border-radius:10px;
-  text-align:center;
-}
-.num{font-size:20px;font-weight:bold}
-.label{font-size:12px;color:#64748b}
-
-/* table */
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:20px;
-}
-th,td{
-  padding:10px;
-  border-bottom:1px solid #1e293b;
-}
-th{
-  background:#161b27;
-  text-align:left;
-  color:#94a3b8;
-}
-
-/* badge */
-.badge{
-  padding:4px 10px;
-  border-radius:20px;
-  font-size:12px;
-  font-weight:bold;
-}
-.match{background:#052e16;color:#4ade80}
-.beda{background:#2d1a00;color:#fbbf24}
-.tidak{background:#3b1212;color:#f87171}
+body{background:#0f172a;color:white;font-family:sans-serif;padding:20px}
+.container{max-width:900px;margin:auto}
+.drop{border:2px dashed #334155;padding:30px;text-align:center;cursor:pointer;border-radius:10px}
+button{padding:10px 15px;background:#3b82f6;color:white;border:none;border-radius:6px;margin-top:10px;cursor:pointer}
+table{width:100%;margin-top:20px;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #1e293b;text-align:left}
+.green{color:#22c55e}
+.yellow{color:#f59e0b}
+.red{color:#ef4444}
 </style>
 </head>
 
 <body>
-<div class="wrap">
+<div class="container">
 
-<h1>Validasi Rekening Bank</h1>
-<p class="sub">Upload Excel: nama, rekening, bank</p>
+<h2>Validasi Rekening Bank</h2>
 
-<div class="drop" onclick="fi.click()">
-  📁 Klik / Drag file Excel
-</div>
-
+<div class="drop" onclick="fi.click()">Klik / Drag Excel</div>
 <input type="file" id="fi" hidden>
 
-<div id="fileName" class="file-name"></div>
+<div id="fname"></div>
 
 <button onclick="start()">Proses</button>
-
-<div class="cards">
-  <div class="card"><div id="t" class="num">0</div><div class="label">Total</div></div>
-  <div class="card"><div id="m" class="num">0</div><div class="label">Match</div></div>
-  <div class="card"><div id="b" class="num">0</div><div class="label">Beda Nama</div></div>
-  <div class="card"><div id="x" class="num">0</div><div class="label">Tidak Valid</div></div>
-</div>
+<a href="/template"><button>Download Template</button></a>
 
 <table>
 <thead>
 <tr>
-<th>No</th>
-<th>Nama Input</th>
-<th>Rekening</th>
-<th>Bank</th>
-<th>Nama di Bank</th>
-<th>Hasil</th>
+<th>No</th><th>Nama</th><th>Rekening</th><th>Bank</th><th>Nama Bank</th><th>Hasil</th>
 </tr>
 </thead>
-<tbody id="tb"></tbody>
+<tbody id="tbody"></tbody>
 </table>
+
+<button onclick="download()">Download Hasil</button>
 
 </div>
 
 <script>
-let file=null;
+let file = null;
+let results = [];
 
-const fi=document.getElementById('fi');
-const tb=document.getElementById('tb');
-const fileName=document.getElementById('fileName');
+const fi = document.getElementById("fi");
+const fname = document.getElementById("fname");
+const tbody = document.getElementById("tbody");
 
-let total=0,match=0,beda=0,tidak=0;
-
-fi.onchange=e=>{
-  file=e.target.files[0];
-  if(file){
-    fileName.innerText="📄 "+file.name;
-  }
+fi.onchange = () => {
+  file = fi.files[0];
+  fname.innerText = file.name;
 };
 
-function update(){
-  document.getElementById('t').innerText=total;
-  document.getElementById('m').innerText=match;
-  document.getElementById('b').innerText=beda;
-  document.getElementById('x').innerText=tidak;
-}
+function start() {
+  if (!file) return alert("Pilih file dulu");
 
-function start(){
-  if(!file){
-    alert('Upload file dulu');
-    return;
-  }
+  tbody.innerHTML = "";
+  results = [];
 
-  tb.innerHTML='';
-  total=match=beda=tidak=0;
-  update();
+  const fd = new FormData();
+  fd.append("file", file);
 
-  const fd=new FormData();
-  fd.append('file',file);
+  fetch("/stream", {method:"POST", body:fd})
+  .then(res => {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
 
-  fetch('/stream',{method:'POST',body:fd})
-  .then(res=>{
-    const reader=res.body.getReader();
-    const dec=new TextDecoder();
+    function read() {
+      reader.read().then(({done, value}) => {
+        if (done) return;
 
-    let buf='';
+        buf += decoder.decode(value);
+        const lines = buf.split("\n");
+        buf = lines.pop();
 
-    function read(){
-      reader.read().then(({done,value})=>{
-        if(done) return;
+        lines.forEach(line => {
+          if (!line.startsWith("data:")) return;
+          const data = JSON.parse(line.replace("data:","").trim());
 
-        buf+=dec.decode(value,{stream:true});
-        const lines=buf.split('\n');
-        buf=lines.pop();
-
-        lines.forEach(line=>{
-          if(!line.startsWith('data:')) return;
-
-          const d=JSON.parse(line.slice(5));
-
-          if(d.type==='result'){
-            render(d);
-          }
-
-          if(d.type==='fatal'){
-            alert(d.error);
+          if (data.type === "result") {
+            addRow(data);
+            results.push(data);
           }
         });
 
         read();
       });
     }
-
     read();
   });
 }
 
-function render(r){
-  total++;
+function addRow(r) {
+  const tr = document.createElement("tr");
 
-  let label='',cls='';
+  let cls = "";
+  if (r.status === "MATCH") cls="green";
+  else if (r.status === "TIDAK SAMA") cls="yellow";
+  else cls="red";
 
-  if(!r.nama_di_bank || r.nama_di_bank==='-'){
-    label='TIDAK VALID';
-    cls='tidak';
-    tidak++;
-  }
-  else if(r.nama_input===r.nama_di_bank){
-    label='MATCH';
-    cls='match';
-    match++;
-  }
-  else{
-    label='TIDAK SAMA';
-    cls='beda';
-    beda++;
-  }
-
-  update();
-
-  const tr=document.createElement('tr');
-  tr.innerHTML=`
+  tr.innerHTML = `
     <td>${r.index}</td>
     <td>${r.nama}</td>
     <td>${r.rekening}</td>
     <td>${r.bank}</td>
-    <td>${r.nama_di_bank||'-'}</td>
-    <td><span class="badge ${cls}">${label}</span></td>
+    <td>${r.nama_di_bank}</td>
+    <td class="${cls}">${r.status}</td>
   `;
 
-  tb.prepend(tr);
+  tbody.appendChild(tr);
+}
+
+function download() {
+  let csv = "No,Nama,Rekening,Bank,Nama Bank,Hasil\n";
+  results.forEach(r=>{
+    csv += `${r.index},${r.nama},${r.rekening},${r.bank},${r.nama_di_bank},${r.status}\n`;
+  });
+
+  const blob = new Blob([csv], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hasil.csv";
+  a.click();
 }
 </script>
 
