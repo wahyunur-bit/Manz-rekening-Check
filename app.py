@@ -4,20 +4,21 @@ import pandas as pd
 import os
 import time
 import json
-import traceback
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from io import BytesIO
 from rapidfuzz import fuzz
 
-app = Flask(__name__)
+# =========================
+# INIT APP (FIX RAILWAY)
+# =========================
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
 API_KEY = os.environ.get("APICOID_API_KEY")
 
 # =========================
 # CONFIG
 # =========================
-
 BANK_MAPPING = {
     "MANDIRI": "mandiri",
     "BCA": "bca",
@@ -42,13 +43,15 @@ def hitung_kemiripan(nama_input, nama_bank):
     )
 
 # =========================
-# SESSION
+# SESSION (ANTI TIMEOUT)
 # =========================
-
 def create_session():
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1,
-                    status_forcelist=[429, 500, 502, 503, 504])
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     return session
@@ -58,13 +61,11 @@ session = create_session()
 # =========================
 # API CALL
 # =========================
-
 def cek_rekening(bank_code, account_number, account_name):
     if not API_KEY:
         return {"error": "API key tidak ada"}
 
     bank_code = BANK_MAPPING.get(bank_code.upper(), bank_code.lower())
-
     url = "https://use.api.co.id/validation/bank"
 
     try:
@@ -90,9 +91,8 @@ def cek_rekening(bank_code, account_number, account_name):
         return {"error": str(e)}
 
 # =========================
-# PARSE
+# PARSE DATA
 # =========================
-
 def parse_row(row):
     nama     = str(row.get("nama", "")).strip()
     rekening = str(row.get("rekening", "")).strip()
@@ -106,7 +106,6 @@ def parse_row(row):
 # =========================
 # ROUTES
 # =========================
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -131,7 +130,17 @@ def stream():
                 res = cek_rekening(bank, rekening, nama)
 
                 if "error" in res:
-                    yield f"data: {json.dumps({'status':'ERROR','keterangan':res['error']})}\n\n"
+                    yield f"data: {json.dumps({
+                        'type':'result',
+                        'index': i,
+                        'nama': nama,
+                        'rekening': rekening,
+                        'bank': bank,
+                        'nama_di_bank': '-',
+                        'similarity': 0,
+                        'status':'ERROR',
+                        'keterangan':res['error']
+                    })}\n\n"
                     continue
 
                 is_valid = res.get("is_valid", False)
@@ -139,7 +148,7 @@ def stream():
                 note = res.get("note", "")
 
                 # =========================
-                # ALWAYS ADA NAMA
+                # NAMA WAJIB ADA
                 # =========================
                 if nama_api and nama_api.strip():
                     nama_di_bank = nama_api
@@ -151,7 +160,7 @@ def stream():
                 similarity = hitung_kemiripan(nama, nama_di_bank)
 
                 # =========================
-                # FINAL LOGIC
+                # LOGIC FINAL
                 # =========================
                 if is_valid:
 
@@ -195,13 +204,16 @@ def stream():
             yield f"data: {json.dumps({'type':'done'})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type':'fatal','error':str(e)})}\n\n"
+            yield f"data: {json.dumps({
+                'type':'fatal',
+                'error': str(e)
+            })}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 # =========================
-# RUN
+# RUN (FIX RAILWAY)
 # =========================
-
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
