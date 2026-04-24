@@ -106,34 +106,18 @@ def cek_rekening(rekening, bank, nama_pengirim):
 
             data = res.json()
 
-            if not data.get("is_success"):
-                print(f"API not success: {json.dumps(data)[:300]}")
-                # Seringkali bank offline sejenak / timeout dari sisi vendor.
-                # Kita WAJIB mencoba ulang jika is_success false.
-                if attempt < max_retries - 1:
-                    time.sleep(3)
-                    continue
-                return None
-
-            inner = data.get("data", {})
-            nama_bank = inner.get("name")
-            is_valid = inner.get("is_valid", False)
-            score = inner.get("score", 0)
-
-            return {
-                "nama_bank": nama_bank if nama_bank else None,
-                "is_valid": is_valid,
-                "score": score,
-                "message": inner.get("message", ""),
-                "note": inner.get("note", "")
-            }
-
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-            print(f"NETWORK ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
+            if not data.get("is_success") or (data.get("data") and data["data"].get("score") == 0 and attempt < max_retries - 1):
+                # Jika is_success false atau score 0 (seringkali karena timeout upstream bank)
+                print(f"API result unstable (success={data.get('is_success')}, score=0). Retry {attempt + 1}/{max_retries}...")
+                time.sleep(3)
+                continue
+                
+            return data.get("data")
+            
+        except (requests.exceptions.RequestException, ValueError) as e:
+            print(f"NETWORK/JSON ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
             time.sleep(3)
-        except Exception as e:
-            print(f"ERROR cek_rekening: {e}")
-            return None
+            continue
 
     # Jika sudah retries tapi tetap gagal
     print(f"Gagal setelah {max_retries} percobaan: bank={bank}, rek={rekening}")
@@ -180,32 +164,31 @@ def proses_satu(args):
     }
 
 
-def generate_stream(records, code):
+def generate_stream(records, code, start_quota):
     try:
         total = len(records)
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Kurangi max_workers menjadi 2 agar aman dari rate limit dan error timeout bank
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # Gunakan max_workers=1 (Sequential) untuk stabilitas 100% dan hasil paling akurat tanpa cela
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
             }
 
+            processed_count = 0
             for future in concurrent.futures.as_completed(futures):
                 try:
                     data = future.result()
+                    processed_count += 1
+                    # Kirim sisa kuota real-time setiap baris selesai
+                    data['sisa_kuota'] = start_quota - processed_count
                     yield f"data: {json.dumps(data)}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
-        # Kirimkan sisa kuota ke frontend
-        with codes_lock:
-            codes = load_codes()
-            sisa_kuota = codes.get(code, 0)
-            
-        yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': sisa_kuota})}\n\n"
+        yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': start_quota - total})}\n\n"
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
@@ -285,9 +268,11 @@ def stream():
             
         codes[code] = quota - total
         save_codes(codes)
+        start_quota = quota
 
+    # Lanjutkan proses jika kuota aman
     return Response(
-        generate_stream(records, code),
+        generate_stream(records, code, start_quota),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
