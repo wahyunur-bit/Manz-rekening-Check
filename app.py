@@ -300,9 +300,9 @@ def stream():
 @app.route('/template')
 def download_template():
     df = pd.DataFrame({
-        "nama": ["Budi Santoso", "Siti Rahayu"],
-        "rekening": ["1234567890", "0987654321"],
-        "bank": ["bca", "mandiri"]
+        "nama": ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
+        "rekening": ["2840446855", "7330699393", "1330024362634", "0987654321"],
+        "bank": ["BCA", "BCA", "MANDIRI", "BRI"]
     })
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
@@ -319,8 +319,9 @@ def supported_banks():
             banks = res.json()["data"]["banks"]
             df = pd.DataFrame(banks)
             df.index = df.index + 1
-            df.columns = ["Nama Bank", "Kode Bank"]
-            df["Kode Singkat (Gunakan ini)"] = df["Kode Bank"].str.replace("bank_", "", n=1)
+            df.columns = ["Nama Bank Resmi", "Kode Asli API"]
+            # Berikan kolom panduan ketikan yang gampang di-copy
+            df["Ketikan di Excel (Acuan)"] = df["Kode Asli API"].str.replace("bank_", "", n=1).str.upper()
             
             buf = io.BytesIO()
             df.to_excel(buf, index=False)
