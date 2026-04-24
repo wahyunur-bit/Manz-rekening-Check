@@ -112,7 +112,12 @@ def cek_rekening(rekening, bank, nama_pengirim):
                 time.sleep(3)
                 continue
                 
-            return data.get("data")
+            inner = data.get("data", {})
+            return {
+                "nama_bank": inner.get("name"),
+                "is_valid": inner.get("is_valid", False),
+                "score": inner.get("score", 0)
+            }
             
         except (requests.exceptions.RequestException, ValueError) as e:
             print(f"NETWORK/JSON ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
