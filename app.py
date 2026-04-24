@@ -99,12 +99,20 @@ def cek_rekening(rekening, bank, nama_pengirim):
 
             if res.status_code != 200:
                 print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
                 return None
 
             data = res.json()
 
             if not data.get("is_success"):
                 print(f"API not success: {json.dumps(data)[:300]}")
+                # Seringkali bank offline sejenak / timeout dari sisi vendor.
+                # Kita WAJIB mencoba ulang jika is_success false.
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
                 return None
 
             inner = data.get("data", {})
