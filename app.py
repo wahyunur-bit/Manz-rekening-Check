@@ -32,6 +32,8 @@ def load_codes():
 def save_codes(codes):
     with open(CODES_FILE, 'w') as f:
         json.dump(codes, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 # --- Helpers ---
@@ -56,9 +58,7 @@ def normalize_bank_code(bank_input):
     code = str(bank_input).strip().lower()
     # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # Ensure bank_ prefix is present to be extremely valid
-    if not code.startswith('bank_'):
-        code = 'bank_' + code
+    # Jangan memaksa prefix bank_ karena API lebih stabil jika menerima input aslinya (misal 'bca' saja)
     return code
 
 
@@ -259,6 +259,27 @@ def download_template():
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name='template.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/supported-banks')
+def supported_banks():
+    try:
+        res = requests.get("https://use.api.co.id/validation/bank/available", headers={"x-api-co-id": API_KEY}, timeout=15)
+        if res.status_code == 200 and res.json().get("is_success"):
+            banks = res.json()["data"]["banks"]
+            df = pd.DataFrame(banks)
+            df.index = df.index + 1
+            df.columns = ["Nama Bank", "Kode Bank"]
+            df["Kode Singkat (Gunakan ini)"] = df["Kode Bank"].str.replace("bank_", "", n=1)
+            
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False)
+            buf.seek(0)
+            return send_file(buf, as_attachment=True, download_name='Daftar_Bank_Support.xlsx',
+                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        print("Error fetching supported banks:", e)
+    return "Gagal mengambil daftar bank dari API. Pastikan API key valid.", 500
 
 
 @app.route('/download', methods=['POST'])
