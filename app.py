@@ -275,8 +275,13 @@ def stream():
         if not isinstance(quota, int):
             quota = 0 if quota is True else 100
             
+        if quota <= 0:
+            return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
+            
         if quota < total:
-            return jsonify({"error": f"Kuota tidak cukup! Sisa kuota: {quota}, butuh: {total} rekening."}), 403
+            # Otomatis potong jumlah baris Excel agar sesuai dengan sisa kuota (validasi dari paling atas)
+            records = records[:quota]
+            total = quota
             
         codes[code] = quota - total
         save_codes(codes)
