@@ -54,13 +54,13 @@ def clean_rekening(val):
 
 
 def normalize_bank_code(bank_input):
-    """Normalisasi kode bank — API menerima short (bca) atau full (bank_bca)."""
+    """Normalisasi kode bank — API mewajibkan prefix bank_."""
     code = str(bank_input).strip().lower()
     # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # Jangan memaksa prefix bank_ karena API lebih stabil jika menerima input aslinya (misal 'bca' saja)
-    if code.startswith('bank_'):
-        code = code.replace('bank_', '', 1)
+    # WAJIB tambahkan prefix bank_ karena server api.co.id menolak format pendek
+    if not code.startswith('bank_'):
+        code = 'bank_' + code
     return code
 
 
