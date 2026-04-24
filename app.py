@@ -1,346 +1,974 @@
-from flask import Flask, request, Response, render_template, send_file, jsonify
-import pandas as pd
-import json
-import io
-import requests
-import concurrent.futures
-import os
-import re
-import threading
-import time
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Rekening Validator by MANZ</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #060810;
+  --surface: #0d1117;
+  --surface2: #13192b;
+  --border: #1e2d45;
+  --accent: #00e5ff;
+  --accent2: #7c3aed;
+  --green: #00ffa3;
+  --yellow: #fbbf24;
+  --red: #ff4d6d;
+  --text: #e2e8f0;
+  --muted: #4a5568;
+  --font-display: 'Syne', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
 
-app = Flask(__name__)
+* { margin:0; padding:0; box-sizing:border-box; }
 
-API_KEY = os.getenv("APICOID_API_KEY")
-BASE_URL = "https://use.api.co.id/validation/bank"
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
 
-WHITESPACE = re.compile(r'\s+')
+/* GRID BACKGROUND */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
 
-# --- Activation Code System ---
-CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'codes.json')
-codes_lock = threading.Lock()
+/* GLOW ORBS */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+}
+.orb-1 {
+  width: 500px; height: 500px;
+  background: rgba(0,229,255,0.07);
+  top: -200px; left: -200px;
+}
+.orb-2 {
+  width: 400px; height: 400px;
+  background: rgba(124,58,237,0.06);
+  bottom: -150px; right: -150px;
+}
 
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+  position: relative;
+  z-index: 1;
+}
 
-def load_codes():
-    try:
-        with open(CODES_FILE, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+/* HEADER */
+header {
+  text-align: center;
+  margin-bottom: 48px;
+}
 
+.logo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,229,255,0.08);
+  border: 1px solid rgba(0,229,255,0.2);
+  border-radius: 100px;
+  padding: 6px 16px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
 
-def save_codes(codes):
-    with open(CODES_FILE, 'w') as f:
-        json.dump(codes, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
+.logo-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
 
+@keyframes pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.4; transform:scale(0.7); }
+}
 
-# --- Helpers ---
-def clean(s):
-    return WHITESPACE.sub('', str(s).upper())
+h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 
+.subtitle {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
 
-def clean_rekening(val):
-    """Bersihkan nomor rekening — hilangkan .0 dari float pandas."""
-    s = str(val).strip()
-    # Jika pandas baca sebagai float misal "1234567890.0"
-    try:
-        if '.' in s:
-            s = str(int(float(s)))
-    except (ValueError, OverflowError):
-        pass
-    return s
+/* CARD */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
 
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
 
-def normalize_bank_code(bank_input):
-    """Normalisasi kode bank — API mewajibkan prefix bank_."""
-    code = str(bank_input).strip().lower()
-    # Hilangkan spasi dan karakter aneh
-    code = WHITESPACE.sub('', code)
-    # WAJIB tambahkan prefix bank_ karena server api.co.id menolak format pendek
-    if not code.startswith('bank_'):
-        code = 'bank_' + code
-    return code
+/* UPLOAD ZONE */
+.upload-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(0,229,255,0.02);
+  position: relative;
+}
 
+.upload-zone:hover, .upload-zone.drag {
+  border-color: var(--accent);
+  background: rgba(0,229,255,0.06);
+}
 
-def cek_rekening(rekening, bank, nama_pengirim):
-    """
-    Cek rekening via api.co.id — POST /validation/bank
-    Parameters:
-      - bank_code: kode bank (short/full format)
-      - account_number: nomor rekening
-      - account_name: nama yang akan dicocokkan
-    Returns dict: {nama_bank, is_valid, score} atau None jika gagal
-    """
-    bank_code = normalize_bank_code(bank)
-    payload = {
-        "bank_code": bank_code,
-        "account_number": str(rekening).strip(),
-        "account_name": str(nama_pengirim).strip()
+.upload-zone input[type=file] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.upload-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.upload-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.upload-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+.file-chosen {
+  margin-top: 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: rgba(0,229,255,0.08);
+  padding: 6px 14px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* ACTIONS */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+button {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 11px 22px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0,229,255,0.25);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 35px rgba(0,229,255,0.4);
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-green {
+  background: rgba(0,255,163,0.1);
+  color: var(--green);
+  border: 1px solid rgba(0,255,163,0.25);
+}
+
+.btn-green:hover {
+  background: rgba(0,255,163,0.18);
+  box-shadow: 0 0 20px rgba(0,255,163,0.15);
+}
+
+/* PROGRESS */
+#progress-area {
+  display: none;
+  margin-top: 20px;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.progress-label {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(0,229,255,0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-count {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.progress-bar-wrap {
+  background: var(--surface2);
+  border-radius: 100px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  transition: width 0.4s ease;
+  width: 0%;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 60px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100px); }
+  100% { transform: translateX(100px); }
+}
+
+.stats-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.stat-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-chip .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+
+/* RESULTS TABLE */
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.table-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.download-group {
+  display: flex;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead tr {
+  background: var(--surface2);
+}
+
+th {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+th:first-child { border-radius: 8px 0 0 8px; }
+th:last-child { border-radius: 0 8px 8px 0; }
+
+tbody tr {
+  border-bottom: 1px solid rgba(30,45,69,0.5);
+  animation: rowIn 0.3s ease forwards;
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+@keyframes rowIn {
+  to { opacity:1; transform:translateX(0); }
+}
+
+tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+td {
+  padding: 11px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #9bb3cc;
+  white-space: nowrap;
+}
+
+td:nth-child(2) {
+  font-weight: 500;
+  color: var(--text);
+  font-family: var(--font-display);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.badge-match {
+  background: rgba(0,255,163,0.1);
+  color: var(--green);
+  border: 1px solid rgba(0,255,163,0.2);
+}
+
+.badge-diff {
+  background: rgba(251,191,36,0.1);
+  color: var(--yellow);
+  border: 1px solid rgba(251,191,36,0.2);
+}
+
+.badge-invalid {
+  background: rgba(255,77,109,0.1);
+  color: var(--red);
+  border: 1px solid rgba(255,77,109,0.2);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+
+.empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
+.empty-text { font-size: 13px; font-family: var(--font-mono); }
+
+/* DONE TOAST */
+.toast {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: var(--green);
+  color: #000;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 14px 22px;
+  border-radius: 10px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 30px rgba(0,255,163,0.3);
+  z-index: 100;
+  animation: toastIn 0.4s ease;
+}
+
+@keyframes toastIn {
+  from { transform: translateY(20px); opacity:0; }
+  to { transform: translateY(0); opacity:1; }
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.table-wrap { overflow-x: auto; }
+
+/* ACTIVATION GATE */
+#gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+
+#mainApp {
+  display: none;
+}
+
+.gate-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 36px;
+  max-width: 440px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.gate-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+.gate-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.gate-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gate-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-bottom: 24px;
+}
+
+.code-input {
+  width: 100%;
+  padding: 13px 16px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.code-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(0,229,255,0.12);
+}
+
+.code-input::placeholder {
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.gate-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px;
+  font-size: 14px;
+}
+
+.gate-error {
+  margin-top: 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--red);
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="container">
+
+  <!-- ACTIVATION GATE -->
+  <div id="gate">
+    <header>
+      <div class="logo-badge">Rekening Validator Pro</div>
+      <h1>Validasi Rekening Bank</h1>
+      <p class="subtitle">// real-time · batch · akurat · cepat</p>
+    </header>
+    <div class="gate-card">
+      <span class="gate-icon">🔐</span>
+      <div class="gate-title">Masukkan Kode Aktivasi</div>
+      <div class="gate-sub">Masukkan kode yang Anda dapatkan untuk menggunakan tool ini</div>
+      <input type="text" class="code-input" id="codeInput" placeholder="KODE-XXXX-XXXX" autocomplete="off" spellcheck="false">
+      <button class="btn-primary gate-btn" id="btnVerify" onclick="verifyCode()">🔓 Aktifkan</button>
+      <div class="gate-error" id="gateError"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP (hidden until code verified) -->
+  <div id="mainApp">
+
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div class="logo-badge">Rekening Validator Pro</div>
+      <h1>Validasi Rekening Bank</h1>
+      <p class="subtitle">// real-time · batch · akurat · cepat</p>
+    </div>
+    <div id="quotaDisplay" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--cyan); color: var(--cyan); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; display: none;">
+      Sisa Kuota: -
+    </div>
+  </header>
+
+  <!-- UPLOAD CARD -->
+  <div class="card">
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(this)">
+      <span class="upload-icon">📂</span>
+      <div class="upload-text">Drop file Excel di sini atau klik untuk pilih</div>
+      <div class="upload-sub">Format: .xlsx / .xls · Kolom: nama, rekening, bank</div>
+    </div>
+    <div id="fileName" style="display:none" class="file-chosen"></div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btnProses" onclick="proses()" disabled>
+        <span id="btnIcon">▶</span> Proses
+      </button>
+      <button class="btn-ghost" onclick="downloadTemplate()">⬇ Template Excel</button>
+      <a href="/supported-banks" class="btn-ghost" style="text-decoration:none; display:inline-flex;">⬇ Daftar Bank Support</a>
+    </div>
+
+    <!-- PROGRESS -->
+    <div id="progress-area">
+      <div class="progress-header">
+        <div class="progress-label">
+          <div class="spinner" id="spinner"></div>
+          <span id="progressText">Memproses...</span>
+        </div>
+        <div class="progress-count" id="progressCount">0 / 0</div>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="stats-row" id="statsRow">
+        <div class="stat-chip"><div class="dot" style="background:var(--green)"></div><span id="cntMatch">0 Match</span></div>
+        <div class="stat-chip"><div class="dot" style="background:var(--yellow)"></div><span id="cntDiff">0 Beda</span></div>
+        <div class="stat-chip"><div class="dot" style="background:var(--red)"></div><span id="cntInvalid">0 Invalid</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABLE CARD -->
+  <div class="card">
+    <div class="table-header">
+      <div class="table-title">⚡ Hasil Validasi</div>
+      <div class="download-group">
+        <button class="btn-green" onclick="download('xlsx')">↓ XLSX</button>
+        <button class="btn-green" onclick="download('csv')">↓ CSV</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Nama</th>
+            <th>Rekening</th>
+            <th>Bank</th>
+            <th>Nama di Bank</th>
+            <th>Score</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="7" style="padding:0;border:none">
+            <div class="empty-state">
+              <span class="empty-icon">🔍</span>
+              <div class="empty-text">Upload file dan klik Proses untuk mulai validasi</div>
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  </div><!-- end mainApp -->
+</div>
+
+<div class="toast" id="toast">✓ <span id="toastMsg">Selesai!</span></div>
+
+<script>
+let results = [];
+let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
+let currentCode = '';
+
+// === ACTIVATION CODE ===
+document.getElementById('codeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') verifyCode();
+});
+
+function verifyCode() {
+  const code = document.getElementById('codeInput').value.trim();
+  const errEl = document.getElementById('gateError');
+  const btn = document.getElementById('btnVerify');
+  if (!code) {
+    errEl.textContent = '⚠ Masukkan kode terlebih dahulu';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ Memverifikasi...';
+  errEl.style.display = 'none';
+
+  fetch('/verify-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.valid) {
+      currentCode = code;
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'block';
+      const qd = document.getElementById('quotaDisplay');
+      if (qd) {
+        qd.style.display = 'block';
+        qd.textContent = `Sisa Kuota: ${data.quota} Rekening`;
+      }
+    } else {
+      errEl.textContent = '✗ ' + (data.message || 'Kode tidak valid');
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = '🔓 Aktifkan';
     }
-    headers = {
-        "x-api-co-id": API_KEY,
-        "Content-Type": "application/json"
+  })
+  .catch(() => {
+    errEl.textContent = '✗ Gagal menghubungi server';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = '🔓 Aktifkan';
+  });
+}
+// === END ACTIVATION CODE ===
+
+function onFileChange(input) {
+  const f = input.files[0];
+  if (!f) return;
+  document.getElementById('fileName').textContent = '📎 ' + f.name;
+  document.getElementById('fileName').style.display = 'inline-block';
+  document.getElementById('btnProses').disabled = false;
+}
+
+// Drag & drop
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) {
+    document.getElementById('fileInput').files = e.dataTransfer.files;
+    onFileChange(document.getElementById('fileInput'));
+  }
+});
+
+function proses() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) return;
+
+  // Reset
+  results = []; done = 0; cMatch = 0; cDiff = 0; cInvalid = 0; total = 0;
+  document.getElementById('tbody').innerHTML = '';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('btnProses').disabled = true;
+  document.getElementById('btnIcon').textContent = '⏳';
+  document.getElementById('progress-area').style.display = 'block';
+  document.getElementById('progressText').textContent = 'Memulai proses...';
+  document.getElementById('spinner').style.display = 'block';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('code', currentCode);
+
+  fetch('/stream', { method: 'POST', body: fd })
+  .then(async res => {
+    if (!res.ok) {
+        let errMsg = 'Server error';
+        try {
+            const err = await res.json();
+            errMsg = err.error || errMsg;
+        } catch(e) {}
+        throw new Error(errMsg);
     }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
 
-    print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
-
-    max_retries = 4
-    for attempt in range(max_retries):
-        try:
-            res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
-            
-            # Jika terkena Rate Limit atau error sementara, tunggu dan coba lagi
-            if res.status_code in [429, 500, 502, 503, 504]:
-                print(f"API Error {res.status_code}. Retry {attempt + 1}/{max_retries}...")
-                time.sleep(3)
-                continue
-
-            if res.status_code != 200:
-                print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
-                if attempt < max_retries - 1:
-                    time.sleep(3)
-                    continue
-                return None
-
-            data = res.json()
-
-            if not data.get("is_success") or (data.get("data") and data["data"].get("score") == 0 and attempt < max_retries - 1):
-                # Jika is_success false atau score 0 (seringkali karena timeout upstream bank)
-                print(f"API result unstable (success={data.get('is_success')}, score=0). Retry {attempt + 1}/{max_retries}...")
-                time.sleep(3)
-                continue
-                
-            return data.get("data")
-            
-        except (requests.exceptions.RequestException, ValueError) as e:
-            print(f"NETWORK/JSON ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
-            time.sleep(3)
-            continue
-
-    # Jika sudah retries tapi tetap gagal
-    print(f"Gagal setelah {max_retries} percobaan: bank={bank}, rek={rekening}")
-    return None
-
-
-def proses_satu(args):
-    i, row = args
-
-    nama     = str(row.get('nama', '')).strip()
-    rekening = clean_rekening(row.get('rekening', ''))
-    bank     = str(row.get('bank', '')).strip()
-
-    result = cek_rekening(rekening, bank, nama)
-
-    if result is None:
-        # API call gagal total (timeout, connection error, dsb.)
-        hasil = "TIDAK VALID"
-        nama_bank = "-"
-    elif result["is_valid"]:
-        # API bilang valid (score >= 7.0) — nama cocok
-        # Karena user tidak ingin ada sensor (Budi***), kita pakai langsung nama asli dari input Excel
-        hasil = "MATCH"
-        nama_bank = nama.upper()
-    elif result["nama_bank"]:
-        # API berhasil tapi nama tidak cocok (score < 7.0)
-        # Rekening ditemukan, tapi nama beda
-        hasil = "TIDAK SAMA"
-        nama_bank = result["nama_bank"]
-    else:
-        # Rekening tidak ditemukan di bank (name=null, is_valid=false)
-        hasil = "TIDAK VALID"
-        nama_bank = "-"
-
-    return {
-        "type": "result",
-        "index": i + 1,
-        "nama": nama,
-        "rekening": rekening,
-        "bank": bank,
-        "nama_bank": nama_bank,
-        "hasil": hasil,
-        "score": result["score"] if result else 0
+    function read() {
+      reader.read().then(({ done: streamDone, value }) => {
+        if (streamDone) return;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        parts.forEach(p => {
+          const raw = p.replace(/^data:\s*/, '');
+          if (!raw.trim()) return;
+          try { handle(JSON.parse(raw)); } catch(e) {}
+        });
+        read();
+      });
     }
+    read();
+  })
+  .catch(e => {
+    document.getElementById('progressText').textContent = 'Error: ' + e.message;
+  });
+}
 
+function handle(d) {
+  if (d.type === 'start') {
+    total = d.total;
+    document.getElementById('progressText').textContent = 'Memvalidasi rekening...';
+    document.getElementById('progressCount').textContent = `0 / ${total}`;
+    
+    let html = '';
+    if (total > 0) {
+      for(let i = 1; i <= total; i++) {
+        html += `<tr id="row-${i}">
+          <td>${i}</td>
+          <td colspan="6" style="color:var(--muted); font-style:italic;">⏳ Mengambil data...</td>
+        </tr>`;
+      }
+    } else {
+      html = `<tr><td colspan="7"><div class="empty-state"><span class="empty-icon">🔍</span><div class="empty-text">Tidak ada data di file Excel</div></div></td></tr>`;
+    }
+    document.getElementById('tbody').innerHTML = html;
+  }
 
-def generate_stream(records, code, start_quota):
-    try:
-        total = len(records)
+  if (d.type === 'result') {
+    let scoreVal = d.score !== undefined ? d.score : 0;
+    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, scoreVal, d.hasil]);
+    done++;
 
-        yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
+    if (d.hasil === 'MATCH') cMatch++;
+    else if (d.hasil === 'TIDAK SAMA') cDiff++;
+    else cInvalid++;
 
-        # Gunakan max_workers=1 (Sequential) untuk stabilitas 100% dan hasil paling akurat tanpa cela
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            futures = {
-                executor.submit(proses_satu, (i, row)): i
-                for i, row in enumerate(records)
-            }
+    // Update stats
+    document.getElementById('cntMatch').textContent = cMatch + ' Match';
+    document.getElementById('cntDiff').textContent = cDiff + ' Beda';
+    document.getElementById('cntInvalid').textContent = cInvalid + ' Invalid';
+    document.getElementById('progressCount').textContent = `${done} / ${total}`;
+    document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
 
-            processed_count = 0
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    data = future.result()
-                    processed_count += 1
-                    # Kirim sisa kuota real-time setiap baris selesai
-                    data['sisa_kuota'] = start_quota - processed_count
-                    yield f"data: {json.dumps(data)}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+    // Update specific row by ID instead of appending to prevent UI scrambling
+    let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
+    let scoreCls = scoreVal >= 7 ? 'color:var(--green)' : scoreVal > 0 ? 'color:var(--yellow)' : 'color:var(--red)';
+    const tr = document.getElementById(`row-${d.index}`);
+    if (tr) {
+      tr.innerHTML = `
+        <td>${d.index}</td>
+        <td>${escHtml(d.nama)}</td>
+        <td>${escHtml(d.rekening)}</td>
+        <td>${escHtml(d.bank.toUpperCase())}</td>
+        <td>${escHtml(d.nama_bank)}</td>
+        <td style="${scoreCls};font-weight:600">${scoreVal}</td>
+        <td><span class="badge ${cls}">${d.hasil}</span></td>
+      `;
+    }
+    // Update sisa kuota real-time
+    if (d.sisa_kuota !== undefined) {
+      document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
+    }
+  }
 
-        yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': start_quota - total})}\n\n"
+  if (d.type === 'done') {
+    document.getElementById('progressText').textContent = `✓ Selesai — ${total} rekening diproses`;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btnProses').disabled = false;
+    document.getElementById('btnIcon').textContent = '▶';
+    document.getElementById('progressBar').style.width = '100%';
+    
+    // Update sisa kuota di UI
+    if (d.sisa_kuota !== undefined) {
+      document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
+    }
+    
+    showToast(`✓ Selesai! ${cMatch} match · ${cDiff} beda · ${cInvalid} invalid`);
+  }
 
-    except Exception as e:
-        yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+  if (d.type === 'error') {
+    document.getElementById('progressText').textContent = '✗ Error: ' + d.message;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btnProses').disabled = false;
+    document.getElementById('btnIcon').textContent = '▶';
+  }
+}
 
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.style.display = 'flex';
+  setTimeout(() => { t.style.display = 'none'; }, 5000);
+}
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
+function downloadTemplate() {
+  window.location = '/template';
+}
 
-@app.route('/verify-code', methods=['POST'])
-def verify_code():
-    body = request.json or {}
-    code = str(body.get('code', '')).strip()
-
-    if not code:
-        return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
-
-    with codes_lock:
-        codes = load_codes()
-
-        if code not in codes:
-            return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
-
-        quota = codes[code]
-        if not isinstance(quota, int):
-            # Migrasi kode lama: jika True berarti sudah habis (0), jika False set default 100
-            if quota is True:
-                codes[code] = 0
-                quota = 0
-            else:
-                codes[code] = 100
-                quota = 100
-            save_codes(codes)
-
-        if quota <= 0:
-            return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
-
-    return jsonify({"valid": True, "quota": quota, "message": "Kode valid, selamat menggunakan!"})
-
-
-@app.route('/stream', methods=['POST'])
-def stream():
-    code = request.form.get('code', '')
-    if 'file' not in request.files:
-        return jsonify({"error": "Tidak ada file"}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "File kosong"}), 400
-
-    try:
-        file_data = io.BytesIO(file.read())
-        df = pd.read_excel(file_data)
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        records = df.to_dict('records')
-        total = len(records)
-    except Exception as e:
-        return jsonify({"error": "Gagal membaca Excel: " + str(e)}), 400
-
-    with codes_lock:
-        codes = load_codes()
-        if code not in codes:
-            return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
-            
-        quota = codes[code]
-        if not isinstance(quota, int):
-            quota = 0 if quota is True else 100
-            
-        if quota <= 0:
-            return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
-            
-        if quota < total:
-            # Otomatis potong jumlah baris Excel agar sesuai dengan sisa kuota (validasi dari paling atas)
-            records = records[:quota]
-            total = quota
-            
-        codes[code] = quota - total
-        save_codes(codes)
-        start_quota = quota
-
-    # Lanjutkan proses jika kuota aman
-    return Response(
-        generate_stream(records, code, start_quota),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
-    )
-
-
-@app.route('/template')
-def download_template():
-    df = pd.DataFrame({
-        "nama": ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
-        "rekening": ["2840446855", "7330699393", "1330024362634", "0987654321"],
-        "bank": ["BCA", "BCA", "MANDIRI", "BRI"]
-    })
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, download_name='template.xlsx',
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-@app.route('/supported-banks')
-def supported_banks():
-    try:
-        res = requests.get("https://use.api.co.id/validation/bank/available", headers={"x-api-co-id": API_KEY}, timeout=15)
-        if res.status_code == 200 and res.json().get("is_success"):
-            banks = res.json()["data"]["banks"]
-            df = pd.DataFrame(banks)
-            df.index = df.index + 1
-            df.columns = ["Nama Bank Resmi", "Kode Asli API"]
-            # Berikan kolom panduan ketikan yang gampang di-copy
-            df["Ketikan di Excel (Acuan)"] = df["Kode Asli API"].str.replace("bank_", "", n=1).str.upper()
-            
-            buf = io.BytesIO()
-            df.to_excel(buf, index=False)
-            buf.seek(0)
-            return send_file(buf, as_attachment=True, download_name='Daftar_Bank_Support.xlsx',
-                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e:
-        print("Error fetching supported banks:", e)
-    return "Gagal mengambil daftar bank dari API. Pastikan API key valid.", 500
-
-
-@app.route('/download', methods=['POST'])
-def download():
-    body = request.json or {}
-    raw  = body.get('data', [])
-    fmt  = body.get('format', 'xlsx')
-
-    cols = ['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Score', 'Hasil']
-    df = pd.DataFrame(raw, columns=cols)
-
-    buf = io.BytesIO()
-
-    if fmt == 'csv':
-        df.to_csv(buf, index=False, sep=',', encoding='utf-8-sig')
-        buf.seek(0)
-        return send_file(buf, as_attachment=True, download_name='hasil.csv',
-                         mimetype='text/csv')
-    else:
-        df.to_excel(buf, index=False)
-        buf.seek(0)
-        return send_file(buf, as_attachment=True, download_name='hasil.xlsx',
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-if __name__ == '__main__':
-    port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False)
+function download(fmt) {
+  if (!results.length) return alert('Belum ada data hasil!');
+  // Pastikan hasil didownload sesuai urutan awal
+  const sortedResults = [...results].sort((a, b) => a[0] - b[0]);
+  fetch('/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: sortedResults, format: fmt })
+  })
+  .then(r => r.blob())
+  .then(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hasil.' + fmt;
+    a.click();
+  });
+}
+</script>
+</body>
+</html>
