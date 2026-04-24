@@ -58,9 +58,9 @@ def normalize_bank_code(bank_input):
     code = str(bank_input).strip().lower()
     # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # Kembalikan prefix bank_ karena terbukti lebih stabil membaca Mandiri/BCA
-    if not code.startswith('bank_'):
-        code = 'bank_' + code
+    # Jangan memaksa prefix bank_ karena API lebih stabil jika menerima input aslinya (misal 'bca' saja)
+    if code.startswith('bank_'):
+        code = code.replace('bank_', '', 1)
     return code
 
 
@@ -86,7 +86,7 @@ def cek_rekening(rekening, bank, nama_pengirim):
 
     print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
 
-    max_retries = 3
+    max_retries = 4
     for attempt in range(max_retries):
         try:
             res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
@@ -94,13 +94,13 @@ def cek_rekening(rekening, bank, nama_pengirim):
             # Jika terkena Rate Limit atau error sementara, tunggu dan coba lagi
             if res.status_code in [429, 500, 502, 503, 504]:
                 print(f"API Error {res.status_code}. Retry {attempt + 1}/{max_retries}...")
-                time.sleep(2)
+                time.sleep(3)
                 continue
 
             if res.status_code != 200:
                 print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
                 if attempt < max_retries - 1:
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                 return None
 
@@ -111,7 +111,7 @@ def cek_rekening(rekening, bank, nama_pengirim):
                 # Seringkali bank offline sejenak / timeout dari sisi vendor.
                 # Kita WAJIB mencoba ulang jika is_success false.
                 if attempt < max_retries - 1:
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                 return None
 
@@ -130,7 +130,7 @@ def cek_rekening(rekening, bank, nama_pengirim):
 
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             print(f"NETWORK ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
-            time.sleep(2)
+            time.sleep(3)
         except Exception as e:
             print(f"ERROR cek_rekening: {e}")
             return None
@@ -180,17 +180,14 @@ def proses_satu(args):
     }
 
 
-def generate_stream(file_data):
+def generate_stream(records, code):
     try:
-        df = pd.read_excel(file_data)
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        records = df.to_dict('records')
         total = len(records)
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Gunakan max_workers=5 untuk lebih cepat tapi tetap aman karena ada retry
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        # Kurangi max_workers menjadi 2 agar aman dari rate limit dan error timeout bank
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
@@ -203,7 +200,12 @@ def generate_stream(file_data):
                 except Exception as e:
                     yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
-        yield f"data: {json.dumps({'type':'done','total':total})}\n\n"
+        # Kirimkan sisa kuota ke frontend
+        with codes_lock:
+            codes = load_codes()
+            sisa_kuota = codes.get(code, 0)
+            
+        yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': sisa_kuota})}\n\n"
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
@@ -228,26 +230,59 @@ def verify_code():
         if code not in codes:
             return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
 
-        if codes[code] is True:
-            return jsonify({"valid": False, "message": "Kode sudah pernah digunakan"}), 403
+        quota = codes[code]
+        if not isinstance(quota, int):
+            # Migrasi kode lama: jika True berarti sudah habis (0), jika False set default 100
+            if quota is True:
+                codes[code] = 0
+                quota = 0
+            else:
+                codes[code] = 100
+                quota = 100
+            save_codes(codes)
 
-        # Tandai kode sebagai sudah dipakai
-        codes[code] = True
-        save_codes(codes)
+        if quota <= 0:
+            return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
 
-    return jsonify({"valid": True, "message": "Kode valid, selamat menggunakan!"})
+    return jsonify({"valid": True, "quota": quota, "message": "Kode valid, selamat menggunakan!"})
 
 
 @app.route('/stream', methods=['POST'])
 def stream():
-    file = request.files.get('file')
-    if not file:
-        return Response("data: {\"type\":\"error\",\"message\":\"No file\"}\n\n", mimetype='text/event-stream')
+    code = request.form.get('code', '')
+    if 'file' not in request.files:
+        return jsonify({"error": "Tidak ada file"}), 400
 
-    file_data = io.BytesIO(file.read())
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "File kosong"}), 400
+
+    try:
+        file_data = file.read()
+        df = pd.read_excel(file_data)
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        records = df.to_dict('records')
+        total = len(records)
+    except Exception as e:
+        return jsonify({"error": "Gagal membaca Excel: " + str(e)}), 400
+
+    with codes_lock:
+        codes = load_codes()
+        if code not in codes:
+            return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
+            
+        quota = codes[code]
+        if not isinstance(quota, int):
+            quota = 0 if quota is True else 100
+            
+        if quota < total:
+            return jsonify({"error": f"Kuota tidak cukup! Sisa kuota: {quota}, butuh: {total} rekening."}), 403
+            
+        codes[code] = quota - total
+        save_codes(codes)
 
     return Response(
-        generate_stream(file_data),
+        generate_stream(records, code),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
