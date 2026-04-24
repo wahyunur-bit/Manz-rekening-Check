@@ -841,8 +841,19 @@ function handle(d) {
     total = d.total;
     document.getElementById('progressText').textContent = 'Memvalidasi rekening...';
     document.getElementById('progressCount').textContent = `0 / ${total}`;
-    if (!total) document.getElementById('tbody').innerHTML = '';
-    else document.getElementById('tbody').innerHTML = '';
+    
+    let html = '';
+    if (total > 0) {
+      for(let i = 1; i <= total; i++) {
+        html += `<tr id="row-${i}">
+          <td>${i}</td>
+          <td colspan="6" style="color:var(--muted); font-style:italic;">⏳ Mengambil data...</td>
+        </tr>`;
+      }
+    } else {
+      html = `<tr><td colspan="7"><div class="empty-state"><span class="empty-icon">🔍</span><div class="empty-text">Tidak ada data di file Excel</div></div></td></tr>`;
+    }
+    document.getElementById('tbody').innerHTML = html;
   }
 
   if (d.type === 'result') {
@@ -861,20 +872,21 @@ function handle(d) {
     document.getElementById('progressCount').textContent = `${done} / ${total}`;
     document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
 
-    // Add row
+    // Update specific row by ID instead of appending to prevent UI scrambling
     let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
     let scoreCls = scoreVal >= 7 ? 'color:var(--green)' : scoreVal > 0 ? 'color:var(--yellow)' : 'color:var(--red)';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${d.index}</td>
-      <td>${escHtml(d.nama)}</td>
-      <td>${escHtml(d.rekening)}</td>
-      <td>${escHtml(d.bank.toUpperCase())}</td>
-      <td>${escHtml(d.nama_bank)}</td>
-      <td style="${scoreCls};font-weight:600">${scoreVal}</td>
-      <td><span class="badge ${cls}">${d.hasil}</span></td>
-    `;
-    document.getElementById('tbody').appendChild(tr);
+    const tr = document.getElementById(`row-${d.index}`);
+    if (tr) {
+      tr.innerHTML = `
+        <td>${d.index}</td>
+        <td>${escHtml(d.nama)}</td>
+        <td>${escHtml(d.rekening)}</td>
+        <td>${escHtml(d.bank.toUpperCase())}</td>
+        <td>${escHtml(d.nama_bank)}</td>
+        <td style="${scoreCls};font-weight:600">${scoreVal}</td>
+        <td><span class="badge ${cls}">${d.hasil}</span></td>
+      `;
+    }
   }
 
   if (d.type === 'done') {
@@ -911,10 +923,12 @@ function downloadTemplate() {
 
 function download(fmt) {
   if (!results.length) return alert('Belum ada data hasil!');
+  // Pastikan hasil didownload sesuai urutan awal
+  const sortedResults = [...results].sort((a, b) => a[0] - b[0]);
   fetch('/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: results, format: fmt })
+    body: JSON.stringify({ data: sortedResults, format: fmt })
   })
   .then(r => r.blob())
   .then(blob => {
