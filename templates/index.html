@@ -908,6 +908,10 @@ function handle(d) {
         <td><span class="badge ${cls}">${d.hasil}</span></td>
       `;
     }
+    // Update sisa kuota real-time
+    if (d.sisa_kuota !== undefined) {
+      document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
+    }
   }
 
   if (d.type === 'done') {
