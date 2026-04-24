@@ -638,10 +638,15 @@ td:nth-child(2) {
   <!-- MAIN APP (hidden until code verified) -->
   <div id="mainApp">
 
-  <header>
-    <div class="logo-badge">Rekening Validator Pro</div>
-    <h1>Validasi Rekening Bank</h1>
-    <p class="subtitle">// real-time · batch · akurat · cepat</p>
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div class="logo-badge">Rekening Validator Pro</div>
+      <h1>Validasi Rekening Bank</h1>
+      <p class="subtitle">// real-time · batch · akurat · cepat</p>
+    </div>
+    <div id="quotaDisplay" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--cyan); color: var(--cyan); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; display: none;">
+      Sisa Kuota: -
+    </div>
   </header>
 
   <!-- UPLOAD CARD -->
@@ -725,6 +730,7 @@ td:nth-child(2) {
 <script>
 let results = [];
 let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
+let currentCode = '';
 
 // === ACTIVATION CODE ===
 document.getElementById('codeInput').addEventListener('keydown', function(e) {
@@ -752,8 +758,14 @@ function verifyCode() {
   .then(r => r.json())
   .then(data => {
     if (data.valid) {
+      currentCode = code;
       document.getElementById('gate').style.display = 'none';
       document.getElementById('mainApp').style.display = 'block';
+      const qd = document.getElementById('quotaDisplay');
+      if (qd) {
+        qd.style.display = 'block';
+        qd.textContent = `Sisa Kuota: ${data.quota} Rekening`;
+      }
     } else {
       errEl.textContent = '✗ ' + (data.message || 'Kode tidak valid');
       errEl.style.display = 'block';
@@ -808,9 +820,18 @@ function proses() {
 
   const fd = new FormData();
   fd.append('file', file);
+  fd.append('code', currentCode);
 
   fetch('/stream', { method: 'POST', body: fd })
-  .then(res => {
+  .then(async res => {
+    if (!res.ok) {
+        let errMsg = 'Server error';
+        try {
+            const err = await res.json();
+            errMsg = err.error || errMsg;
+        } catch(e) {}
+        throw new Error(errMsg);
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -895,6 +916,12 @@ function handle(d) {
     document.getElementById('btnProses').disabled = false;
     document.getElementById('btnIcon').textContent = '▶';
     document.getElementById('progressBar').style.width = '100%';
+    
+    // Update sisa kuota di UI
+    if (d.sisa_kuota !== undefined) {
+      document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
+    }
+    
     showToast(`✓ Selesai! ${cMatch} match · ${cDiff} beda · ${cInvalid} invalid`);
   }
 
