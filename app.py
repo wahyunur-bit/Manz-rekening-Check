@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, send_file
+from flask import Flask, request, Response, render_template, send_file, jsonify
 import pandas as pd
 import json
 import io
@@ -6,6 +6,7 @@ import requests
 import concurrent.futures
 import os
 import re
+import threading
 
 app = Flask(__name__)
 
@@ -14,27 +15,68 @@ BASE_URL = "https://api.api.co.id/v1/bank/account"
 
 WHITESPACE = re.compile(r'\s+')
 
+# --- Activation Code System ---
+CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'codes.json')
+codes_lock = threading.Lock()
+
+
+def load_codes():
+    try:
+        with open(CODES_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_codes(codes):
+    with open(CODES_FILE, 'w') as f:
+        json.dump(codes, f, indent=2)
+
+
+# --- Helpers ---
 def clean(s):
     return WHITESPACE.sub('', str(s).upper())
 
 
+def clean_rekening(val):
+    """Bersihkan nomor rekening — hilangkan .0 dari float pandas."""
+    s = str(val).strip()
+    # Jika pandas baca sebagai float misal "1234567890.0"
+    try:
+        if '.' in s:
+            s = str(int(float(s)))
+    except (ValueError, OverflowError):
+        pass
+    return s
+
+
 def cek_rekening(rekening, bank):
     try:
-        headers = {"Authorization": f"Bearer {API_KEY}"}
+        headers = {"x-api-co-id": API_KEY}
         payload = {
             "bank": bank.lower().strip(),
             "account_number": str(rekening).strip()
         }
-        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=5)
+        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=10)
 
         if res.status_code != 200:
+            print(f"API HTTP {res.status_code}: {res.text[:200]}")
             return None
 
         data = res.json()
-        if not data.get("success"):
+
+        if not data.get("is_success"):
+            print(f"API not success: {json.dumps(data)[:200]}")
             return None
 
-        return data["data"]["account_name"]
+        inner = data.get("data", {})
+
+        nama = inner.get("name")
+        if nama:
+            return str(nama)
+
+        print(f"API no name field: {json.dumps(inner)[:200]}")
+        return None
 
     except Exception as e:
         print("ERROR cek_rekening:", e)
@@ -45,7 +87,7 @@ def proses_satu(args):
     i, row = args
 
     nama     = str(row.get('nama', '')).strip()
-    rekening = str(row.get('rekening', '')).strip()
+    rekening = clean_rekening(row.get('rekening', ''))
     bank     = str(row.get('bank', '')).strip()
 
     nama_bank = cek_rekening(rekening, bank)
@@ -99,6 +141,30 @@ def generate_stream(file_data):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/verify-code', methods=['POST'])
+def verify_code():
+    body = request.json or {}
+    code = str(body.get('code', '')).strip()
+
+    if not code:
+        return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
+
+    with codes_lock:
+        codes = load_codes()
+
+        if code not in codes:
+            return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
+
+        if codes[code] is True:
+            return jsonify({"valid": False, "message": "Kode sudah pernah digunakan"}), 403
+
+        # Tandai kode sebagai sudah dipakai
+        codes[code] = True
+        save_codes(codes)
+
+    return jsonify({"valid": True, "message": "Kode valid, selamat menggunakan!"})
 
 
 @app.route('/stream', methods=['POST'])
