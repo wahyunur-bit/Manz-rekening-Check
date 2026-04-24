@@ -506,6 +506,109 @@ td:nth-child(2) {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
 .table-wrap { overflow-x: auto; }
+
+/* ACTIVATION GATE */
+#gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+
+#mainApp {
+  display: none;
+}
+
+.gate-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 36px;
+  max-width: 440px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.gate-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+.gate-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.gate-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gate-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-bottom: 24px;
+}
+
+.code-input {
+  width: 100%;
+  padding: 13px 16px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.code-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(0,229,255,0.12);
+}
+
+.code-input::placeholder {
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.gate-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px;
+  font-size: 14px;
+}
+
+.gate-error {
+  margin-top: 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--red);
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 </style>
 </head>
 <body>
@@ -514,6 +617,26 @@ td:nth-child(2) {
 <div class="orb orb-2"></div>
 
 <div class="container">
+
+  <!-- ACTIVATION GATE -->
+  <div id="gate">
+    <header>
+      <div class="logo-badge">Rekening Validator Pro</div>
+      <h1>Validasi Rekening Bank</h1>
+      <p class="subtitle">// real-time · batch · akurat · cepat</p>
+    </header>
+    <div class="gate-card">
+      <span class="gate-icon">🔐</span>
+      <div class="gate-title">Masukkan Kode Aktivasi</div>
+      <div class="gate-sub">Masukkan kode yang Anda dapatkan untuk menggunakan tool ini</div>
+      <input type="text" class="code-input" id="codeInput" placeholder="KODE-XXXX-XXXX" autocomplete="off" spellcheck="false">
+      <button class="btn-primary gate-btn" id="btnVerify" onclick="verifyCode()">🔓 Aktifkan</button>
+      <div class="gate-error" id="gateError"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP (hidden until code verified) -->
+  <div id="mainApp">
 
   <header>
     <div class="logo-badge">Rekening Validator Pro</div>
@@ -592,6 +715,7 @@ td:nth-child(2) {
     </div>
   </div>
 
+  </div><!-- end mainApp -->
 </div>
 
 <div class="toast" id="toast">✓ <span id="toastMsg">Selesai!</span></div>
@@ -599,6 +723,50 @@ td:nth-child(2) {
 <script>
 let results = [];
 let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
+
+// === ACTIVATION CODE ===
+document.getElementById('codeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') verifyCode();
+});
+
+function verifyCode() {
+  const code = document.getElementById('codeInput').value.trim();
+  const errEl = document.getElementById('gateError');
+  const btn = document.getElementById('btnVerify');
+  if (!code) {
+    errEl.textContent = '⚠ Masukkan kode terlebih dahulu';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ Memverifikasi...';
+  errEl.style.display = 'none';
+
+  fetch('/verify-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.valid) {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'block';
+    } else {
+      errEl.textContent = '✗ ' + (data.message || 'Kode tidak valid');
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = '🔓 Aktifkan';
+    }
+  })
+  .catch(() => {
+    errEl.textContent = '✗ Gagal menghubungi server';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = '🔓 Aktifkan';
+  });
+}
+// === END ACTIVATION CODE ===
 
 function onFileChange(input) {
   const f = input.files[0];
