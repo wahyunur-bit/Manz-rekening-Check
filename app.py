@@ -262,7 +262,7 @@ def download():
     raw  = body.get('data', [])
     fmt  = body.get('format', 'xlsx')
 
-    cols = ['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Hasil']
+    cols = ['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Score', 'Hasil']
     df = pd.DataFrame(raw, columns=cols)
 
     buf = io.BytesIO()
