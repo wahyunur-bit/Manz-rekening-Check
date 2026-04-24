@@ -55,14 +55,15 @@ def normalize_bank_code(bank_input):
     code = str(bank_input).strip().lower()
     # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # Jika user sudah pakai format full (bank_xxx), pakai langsung
-    # Jika belum, biarkan saja — API otomatis menambah prefix bank_
+    # Ensure bank_ prefix is present to be extremely valid
+    if not code.startswith('bank_'):
+        code = 'bank_' + code
     return code
 
 
 def cek_rekening(rekening, bank, nama_pengirim):
     """
-    Cek rekening via api.co.id — GET /validation/bank
+    Cek rekening via api.co.id — POST /validation/bank
     Parameters:
       - bank_code: kode bank (short/full format)
       - account_number: nomor rekening
@@ -70,10 +71,13 @@ def cek_rekening(rekening, bank, nama_pengirim):
     Returns dict: {nama_bank, is_valid, score} atau None jika gagal
     """
     try:
-        headers = {"x-api-co-id": API_KEY}
+        headers = {
+            "x-api-co-id": API_KEY,
+            "Content-Type": "application/json"
+        }
         bank_code = normalize_bank_code(bank)
 
-        params = {
+        payload = {
             "bank_code": bank_code,
             "account_number": str(rekening).strip(),
             "account_name": str(nama_pengirim).strip()
@@ -81,7 +85,7 @@ def cek_rekening(rekening, bank, nama_pengirim):
 
         print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
 
-        res = requests.get(BASE_URL, params=params, headers=headers, timeout=15)
+        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
 
         print(f"[API RES] HTTP {res.status_code}: {res.text[:500]}")
 
