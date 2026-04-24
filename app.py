@@ -179,8 +179,8 @@ def generate_stream(file_data):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Kurangi max_workers menjadi 2 agar tidak terkena limit API server (Too Many Requests)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # Gunakan max_workers=5 untuk lebih cepat tapi tetap aman karena ada retry
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
