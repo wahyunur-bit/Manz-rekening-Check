@@ -700,11 +700,12 @@ td:nth-child(2) {
             <th>Rekening</th>
             <th>Bank</th>
             <th>Nama di Bank</th>
+            <th>Score</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="6" style="padding:0;border:none">
+          <tr><td colspan="7" style="padding:0;border:none">
             <div class="empty-state">
               <span class="empty-icon">🔍</span>
               <div class="empty-text">Upload file dan klik Proses untuk mulai validasi</div>
@@ -844,7 +845,8 @@ function handle(d) {
   }
 
   if (d.type === 'result') {
-    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
+    let scoreVal = d.score !== undefined ? d.score : 0;
+    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, scoreVal, d.hasil]);
     done++;
 
     if (d.hasil === 'MATCH') cMatch++;
@@ -860,6 +862,7 @@ function handle(d) {
 
     // Add row
     let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
+    let scoreCls = scoreVal >= 7 ? 'color:var(--green)' : scoreVal > 0 ? 'color:var(--yellow)' : 'color:var(--red)';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.index}</td>
@@ -867,6 +870,7 @@ function handle(d) {
       <td>${escHtml(d.rekening)}</td>
       <td>${escHtml(d.bank.toUpperCase())}</td>
       <td>${escHtml(d.nama_bank)}</td>
+      <td style="${scoreCls};font-weight:600">${scoreVal}</td>
       <td><span class="badge ${cls}">${d.hasil}</span></td>
     `;
     document.getElementById('tbody').appendChild(tr);
