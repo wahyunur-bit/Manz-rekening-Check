@@ -258,7 +258,7 @@ def stream():
         return jsonify({"error": "File kosong"}), 400
 
     try:
-        file_data = file.read()
+        file_data = io.BytesIO(file.read())
         df = pd.read_excel(file_data)
         df.columns = [str(c).strip().lower() for c in df.columns]
         records = df.to_dict('records')
