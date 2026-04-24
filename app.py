@@ -7,6 +7,7 @@ import concurrent.futures
 import os
 import re
 import threading
+import time
 
 app = Flask(__name__)
 
@@ -70,65 +71,63 @@ def cek_rekening(rekening, bank, nama_pengirim):
       - account_name: nama yang akan dicocokkan
     Returns dict: {nama_bank, is_valid, score} atau None jika gagal
     """
-    try:
-        headers = {
-            "x-api-co-id": API_KEY,
-            "Content-Type": "application/json"
-        }
-        bank_code = normalize_bank_code(bank)
+    bank_code = normalize_bank_code(bank)
+    payload = {
+        "bank_code": bank_code,
+        "account_number": str(rekening).strip(),
+        "account_name": str(nama_pengirim).strip()
+    }
+    headers = {
+        "x-api-co-id": API_KEY,
+        "Content-Type": "application/json"
+    }
 
-        payload = {
-            "bank_code": bank_code,
-            "account_number": str(rekening).strip(),
-            "account_name": str(nama_pengirim).strip()
-        }
+    print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
 
-        print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
+            
+            # Jika terkena Rate Limit atau error sementara, tunggu dan coba lagi
+            if res.status_code in [429, 500, 502, 503, 504]:
+                print(f"API Error {res.status_code}. Retry {attempt + 1}/{max_retries}...")
+                time.sleep(2)
+                continue
 
-        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
+            if res.status_code != 200:
+                print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
+                return None
 
-        print(f"[API RES] HTTP {res.status_code}: {res.text[:500]}")
+            data = res.json()
 
-        if res.status_code != 200:
-            print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
+            if not data.get("is_success"):
+                print(f"API not success: {json.dumps(data)[:300]}")
+                return None
+
+            inner = data.get("data", {})
+            nama_bank = inner.get("name")
+            is_valid = inner.get("is_valid", False)
+            score = inner.get("score", 0)
+
+            return {
+                "nama_bank": nama_bank if nama_bank else None,
+                "is_valid": is_valid,
+                "score": score,
+                "message": inner.get("message", ""),
+                "note": inner.get("note", "")
+            }
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            print(f"NETWORK ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
+            time.sleep(2)
+        except Exception as e:
+            print(f"ERROR cek_rekening: {e}")
             return None
 
-        data = res.json()
-
-        if not data.get("is_success"):
-            print(f"API not success: {json.dumps(data)[:300]}")
-            return None
-
-        inner = data.get("data", {})
-
-        # API mengembalikan:
-        # - is_valid: true/false (score >= 7.0 = valid)
-        # - score: 0.0 - 10.0 (tingkat kecocokan nama)
-        # - name: nama rekening ter-mask (contoh: "Rif**** Eln****"), null jika invalid
-        # - message: pesan status
-        # - note: catatan tambahan
-
-        nama_bank = inner.get("name")  # Nama ter-mask dari bank, bisa null
-        is_valid = inner.get("is_valid", False)
-        score = inner.get("score", 0)
-
-        return {
-            "nama_bank": nama_bank if nama_bank else None,
-            "is_valid": is_valid,
-            "score": score,
-            "message": inner.get("message", ""),
-            "note": inner.get("note", "")
-        }
-
-    except requests.exceptions.Timeout:
-        print(f"TIMEOUT cek_rekening: bank={bank}, rek={rekening}")
-        return None
-    except requests.exceptions.ConnectionError:
-        print(f"CONNECTION ERROR cek_rekening: bank={bank}, rek={rekening}")
-        return None
-    except Exception as e:
-        print(f"ERROR cek_rekening: {e}")
-        return None
+    # Jika sudah retries tapi tetap gagal
+    print(f"Gagal setelah {max_retries} percobaan: bank={bank}, rek={rekening}")
+    return None
 
 
 def proses_satu(args):
@@ -146,8 +145,9 @@ def proses_satu(args):
         nama_bank = "-"
     elif result["is_valid"]:
         # API bilang valid (score >= 7.0) — nama cocok
+        # Karena user tidak ingin ada sensor (Budi***), kita pakai langsung nama asli dari input Excel
         hasil = "MATCH"
-        nama_bank = result["nama_bank"] or "-"
+        nama_bank = nama.upper()
     elif result["nama_bank"]:
         # API berhasil tapi nama tidak cocok (score < 7.0)
         # Rekening ditemukan, tapi nama beda
@@ -179,7 +179,8 @@ def generate_stream(file_data):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Kurangi max_workers menjadi 2 agar tidak terkena limit API server (Too Many Requests)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
