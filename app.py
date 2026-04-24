@@ -47,6 +47,7 @@ def cek_rekening(rekening, bank):
             return None
 
         data = res.json()
+        print(data)
         if not data.get("success"):
             return None
 
