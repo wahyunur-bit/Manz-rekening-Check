@@ -58,7 +58,9 @@ def normalize_bank_code(bank_input):
     code = str(bank_input).strip().lower()
     # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # Jangan memaksa prefix bank_ karena API lebih stabil jika menerima input aslinya (misal 'bca' saja)
+    # Kembalikan prefix bank_ karena terbukti lebih stabil membaca Mandiri/BCA
+    if not code.startswith('bank_'):
+        code = 'bank_' + code
     return code
 
 
