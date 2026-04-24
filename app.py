@@ -54,78 +54,69 @@ def clean_rekening(val):
 
 
 def normalize_bank_code(bank_input):
-    """Normalisasi kode bank — API mewajibkan prefix bank_."""
+    """Bersihkan input bank dari user agar siap diolah di cek_rekening."""
     code = str(bank_input).strip().lower()
-    # Hilangkan spasi dan karakter aneh
     code = WHITESPACE.sub('', code)
-    # WAJIB tambahkan prefix bank_ karena server api.co.id menolak format pendek
-    if not code.startswith('bank_'):
-        code = 'bank_' + code
+    if code.startswith('bank_'):
+        code = code.replace('bank_', '', 1)
     return code
 
 
-def cek_rekening(rekening, bank, nama_pengirim):
+def cek_rekening(rekening, bank_code_raw, nama_pengirim):
     """
-    Cek rekening via api.co.id — POST /validation/bank
-    Parameters:
-      - bank_code: kode bank (short/full format)
-      - account_number: nomor rekening
-      - account_name: nama yang akan dicocokkan
-    Returns dict: {nama_bank, is_valid, score} atau None jika gagal
+    Cek rekening dengan Logika Invincible: 
+    Mencoba format 'bank_xxx' dan 'xxx' secara bergantian dengan total 4x percobaan.
+    Sangat tangguh menghadapi fluktuasi server api.co.id.
     """
-    bank_code = normalize_bank_code(bank)
-    payload = {
-        "bank_code": bank_code,
-        "account_number": str(rekening).strip(),
-        "account_name": str(nama_pengirim).strip()
-    }
+    bank_clean = normalize_bank_code(bank_code_raw)
+    # Daftar format yang akan dicoba secara bergantian
+    formats_to_try = [f"bank_{bank_clean}", bank_clean, f"bank_{bank_clean}", bank_clean]
+    
     headers = {
         "x-api-co-id": API_KEY,
         "Content-Type": "application/json"
     }
 
-    print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
+    for attempt, current_bank_code in enumerate(formats_to_try):
+        payload = {
+            "bank_code": current_bank_code,
+            "account_number": str(rekening).strip(),
+            "account_name": str(nama_pengirim).strip()
+        }
 
-    max_retries = 4
-    for attempt in range(max_retries):
         try:
+            print(f"[API REQ] Try {attempt+1}: {current_bank_code} | rek: {rekening}")
             res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
             
-            # Jika terkena Rate Limit atau error sementara, tunggu dan coba lagi
             if res.status_code in [429, 500, 502, 503, 504]:
-                print(f"API Error {res.status_code}. Retry {attempt + 1}/{max_retries}...")
                 time.sleep(3)
                 continue
-
-            if res.status_code != 200:
-                print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
-                if attempt < max_retries - 1:
-                    time.sleep(3)
-                    continue
-                return None
 
             data = res.json()
-
-            if not data.get("is_success") or (data.get("data") and data["data"].get("score") == 0 and attempt < max_retries - 1):
-                # Jika is_success false atau score 0 (seringkali karena timeout upstream bank)
-                print(f"API result unstable (success={data.get('is_success')}, score=0). Retry {attempt + 1}/{max_retries}...")
-                time.sleep(3)
-                continue
-                
-            inner = data.get("data", {})
-            return {
-                "nama_bank": inner.get("name"),
-                "is_valid": inner.get("is_valid", False),
-                "score": inner.get("score", 0)
-            }
+            inner = data.get("data")
             
-        except (requests.exceptions.RequestException, ValueError) as e:
-            print(f"NETWORK/JSON ERROR: {e}. Retry {attempt + 1}/{max_retries}...")
+            # KONDISI SUKSES MUTLAK:
+            # 1. is_success True
+            # 2. data tidak None
+            # 3. score > 0 (artinya ditemukan/diproses)
+            if data.get("is_success") and inner and inner.get("score", 0) > 0:
+                return {
+                    "nama_bank": inner.get("name"),
+                    "is_valid": inner.get("is_valid", False),
+                    "score": inner.get("score", 0)
+                }
+            
+            # Jika is_success False atau Score 0 atau Data Null, 
+            # kita anggap API sedang error sementara atau format kode bank salah.
+            print(f"[API FAIL] Format {current_bank_code} gagal/score 0. Mencoba lagi...")
+            time.sleep(2)
+            
+        except Exception as e:
+            print(f"[API ERROR] {e}. Retry...")
             time.sleep(3)
             continue
 
-    # Jika sudah retries tapi tetap gagal
-    print(f"Gagal setelah {max_retries} percobaan: bank={bank}, rek={rekening}")
+    print(f"Gagal total setelah 4 format/percobaan: {bank_clean} | {rekening}")
     return None
 
 
