@@ -6,8 +6,6 @@
 <title>Rekening Validator by MANZ</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-
-/* === SEMUA CSS ASLI KAMU TETAP === */
 :root {
   --bg: #060810;
   --surface: #0d1117;
@@ -24,9 +22,490 @@
   --font-mono: 'JetBrains Mono', monospace;
 }
 
-/* (SEMUA CSS KAMU YANG PANJANG TADI BIARKAN TETAP SAMA, 
-   TIDAK PERLU SAYA ULANGI LAGI AGAR JAWABAN TIDAK TERPOTONG) */
+* { margin:0; padding:0; box-sizing:border-box; }
 
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* GRID BACKGROUND */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* GLOW ORBS */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+}
+.orb-1 {
+  width: 500px; height: 500px;
+  background: rgba(0,229,255,0.07);
+  top: -200px; left: -200px;
+}
+.orb-2 {
+  width: 400px; height: 400px;
+  background: rgba(124,58,237,0.06);
+  bottom: -150px; right: -150px;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+  position: relative;
+  z-index: 1;
+}
+
+/* HEADER */
+header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.logo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,229,255,0.08);
+  border: 1px solid rgba(0,229,255,0.2);
+  border-radius: 100px;
+  padding: 6px 16px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.logo-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.4; transform:scale(0.7); }
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+/* CARD */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+/* UPLOAD ZONE */
+.upload-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(0,229,255,0.02);
+  position: relative;
+}
+
+.upload-zone:hover, .upload-zone.drag {
+  border-color: var(--accent);
+  background: rgba(0,229,255,0.06);
+}
+
+.upload-zone input[type=file] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.upload-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.upload-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.upload-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+.file-chosen {
+  margin-top: 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: rgba(0,229,255,0.08);
+  padding: 6px 14px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* ACTIONS */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+button {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 11px 22px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0,229,255,0.25);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 35px rgba(0,229,255,0.4);
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-green {
+  background: rgba(0,255,163,0.1);
+  color: var(--green);
+  border: 1px solid rgba(0,255,163,0.25);
+}
+
+.btn-green:hover {
+  background: rgba(0,255,163,0.18);
+  box-shadow: 0 0 20px rgba(0,255,163,0.15);
+}
+
+/* PROGRESS */
+#progress-area {
+  display: none;
+  margin-top: 20px;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.progress-label {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(0,229,255,0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-count {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.progress-bar-wrap {
+  background: var(--surface2);
+  border-radius: 100px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  transition: width 0.4s ease;
+  width: 0%;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 60px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100px); }
+  100% { transform: translateX(100px); }
+}
+
+.stats-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.stat-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-chip .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+
+/* RESULTS TABLE */
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.table-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.download-group {
+  display: flex;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead tr {
+  background: var(--surface2);
+}
+
+th {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+th:first-child { border-radius: 8px 0 0 8px; }
+th:last-child { border-radius: 0 8px 8px 0; }
+
+tbody tr {
+  border-bottom: 1px solid rgba(30,45,69,0.5);
+  animation: rowIn 0.3s ease forwards;
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+@keyframes rowIn {
+  to { opacity:1; transform:translateX(0); }
+}
+
+tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+td {
+  padding: 11px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #9bb3cc;
+  white-space: nowrap;
+}
+
+td:nth-child(2) {
+  font-weight: 500;
+  color: var(--text);
+  font-family: var(--font-display);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.badge-match {
+  background: rgba(0,255,163,0.1);
+  color: var(--green);
+  border: 1px solid rgba(0,255,163,0.2);
+}
+
+.badge-diff {
+  background: rgba(251,191,36,0.1);
+  color: var(--yellow);
+  border: 1px solid rgba(251,191,36,0.2);
+}
+
+.badge-invalid {
+  background: rgba(255,77,109,0.1);
+  color: var(--red);
+  border: 1px solid rgba(255,77,109,0.2);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+
+.empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
+.empty-text { font-size: 13px; font-family: var(--font-mono); }
+
+/* DONE TOAST */
+.toast {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: var(--green);
+  color: #000;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 14px 22px;
+  border-radius: 10px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 30px rgba(0,255,163,0.3);
+  z-index: 100;
+  animation: toastIn 0.4s ease;
+}
+
+@keyframes toastIn {
+  from { transform: translateY(20px); opacity:0; }
+  to { transform: translateY(0); opacity:1; }
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.table-wrap { overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -36,94 +515,88 @@
 
 <div class="container">
 
-<header>
-  <div class="logo-badge">Rekening Validator Pro</div>
-  <h1>Validasi Rekening Bank</h1>
-  <p class="subtitle">// real-time · batch · akurat · cepat</p>
-</header>
+  <header>
+    <div class="logo-badge">Rekening Validator Pro</div>
+    <h1>Validasi Rekening Bank</h1>
+    <p class="subtitle">// real-time · batch · akurat · cepat</p>
+  </header>
 
-<div class="card">
-  <div class="upload-zone" id="uploadZone">
-    <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(this)">
-    <span class="upload-icon">📂</span>
-    <div class="upload-text">Drop file Excel di sini atau klik untuk pilih</div>
-    <div class="upload-sub">Format: .xlsx / .xls · Kolom: nama, rekening, bank</div>
-  </div>
+  <!-- UPLOAD CARD -->
+  <div class="card">
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(this)">
+      <span class="upload-icon">📂</span>
+      <div class="upload-text">Drop file Excel di sini atau klik untuk pilih</div>
+      <div class="upload-sub">Format: .xlsx / .xls · Kolom: nama, rekening, bank</div>
+    </div>
+    <div id="fileName" style="display:none" class="file-chosen"></div>
 
-  <div id="fileName" style="display:none" class="file-chosen"></div>
+    <div class="actions">
+      <button class="btn-primary" id="btnProses" onclick="proses()" disabled>
+        <span id="btnIcon">▶</span> Proses
+      </button>
+      <button class="btn-ghost" onclick="downloadTemplate()">⬇ Template Excel</button>
+    </div>
 
-  <!-- LICENSE INPUT DITAMBAHKAN -->
-  <div style="margin-top:20px">
-    <input type="text" id="licenseCode"
-      placeholder="Masukkan kode akses"
-      style="width:100%;padding:10px;border-radius:8px;border:1px solid #1e2d45;background:#0d1117;color:#fff">
-  </div>
-
-  <div class="actions">
-    <button class="btn-primary" id="btnProses" onclick="proses()" disabled>
-      <span id="btnIcon">▶</span> Proses
-    </button>
-    <button class="btn-ghost" onclick="downloadTemplate()">⬇ Template Excel</button>
-  </div>
-
-  <div id="progress-area">
-    <div class="progress-header">
-      <div class="progress-label">
-        <div class="spinner" id="spinner"></div>
-        <span id="progressText">Memproses...</span>
+    <!-- PROGRESS -->
+    <div id="progress-area">
+      <div class="progress-header">
+        <div class="progress-label">
+          <div class="spinner" id="spinner"></div>
+          <span id="progressText">Memproses...</span>
+        </div>
+        <div class="progress-count" id="progressCount">0 / 0</div>
       </div>
-      <div class="progress-count" id="progressCount">0 / 0</div>
-    </div>
-    <div class="progress-bar-wrap">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-    <div class="stats-row" id="statsRow">
-      <div class="stat-chip"><div class="dot" style="background:var(--green)"></div><span id="cntMatch">0 Match</span></div>
-      <div class="stat-chip"><div class="dot" style="background:var(--yellow)"></div><span id="cntDiff">0 Beda</span></div>
-      <div class="stat-chip"><div class="dot" style="background:var(--red)"></div><span id="cntInvalid">0 Invalid</span></div>
-    </div>
-  </div>
-</div>
-
-<div class="card">
-  <div class="table-header">
-    <div class="table-title">⚡ Hasil Validasi</div>
-    <div class="download-group">
-      <button class="btn-green" onclick="download('xlsx')">↓ XLSX</button>
-      <button class="btn-green" onclick="download('csv')">↓ CSV</button>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="stats-row" id="statsRow">
+        <div class="stat-chip"><div class="dot" style="background:var(--green)"></div><span id="cntMatch">0 Match</span></div>
+        <div class="stat-chip"><div class="dot" style="background:var(--yellow)"></div><span id="cntDiff">0 Beda</span></div>
+        <div class="stat-chip"><div class="dot" style="background:var(--red)"></div><span id="cntInvalid">0 Invalid</span></div>
+      </div>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>No</th>
-          <th>Nama</th>
-          <th>Rekening</th>
-          <th>Bank</th>
-          <th>Nama di Bank</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-        <tr><td colspan="6" style="padding:0;border:none">
-          <div class="empty-state">
-            <span class="empty-icon">🔍</span>
-            <div class="empty-text">Upload file dan klik Proses untuk mulai validasi</div>
-          </div>
-        </td></tr>
-      </tbody>
-    </table>
+  <!-- TABLE CARD -->
+  <div class="card">
+    <div class="table-header">
+      <div class="table-title">⚡ Hasil Validasi</div>
+      <div class="download-group">
+        <button class="btn-green" onclick="download('xlsx')">↓ XLSX</button>
+        <button class="btn-green" onclick="download('csv')">↓ CSV</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Nama</th>
+            <th>Rekening</th>
+            <th>Bank</th>
+            <th>Nama di Bank</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="6" style="padding:0;border:none">
+            <div class="empty-state">
+              <span class="empty-icon">🔍</span>
+              <div class="empty-text">Upload file dan klik Proses untuk mulai validasi</div>
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
 </div>
 
 <div class="toast" id="toast">✓ <span id="toastMsg">Selesai!</span></div>
 
 <script>
-
 let results = [];
 let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
 
@@ -135,6 +608,7 @@ function onFileChange(input) {
   document.getElementById('btnProses').disabled = false;
 }
 
+// Drag & drop
 const zone = document.getElementById('uploadZone');
 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
 zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
@@ -149,37 +623,10 @@ zone.addEventListener('drop', e => {
 });
 
 function proses() {
-
   const file = document.getElementById('fileInput').files[0];
   if (!file) return;
 
-  const code = document.getElementById('licenseCode').value.trim();
-  if (!code) {
-    alert("Masukkan kode akses dulu!");
-    return;
-  }
-
-  fetch('/verify-code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: code })
-  })
-  .then(r => r.json())
-  .then(res => {
-
-    if (!res.success) {
-      alert(res.message);
-      return;
-    }
-
-    startStream(file);
-
-  });
-
-}
-
-function startStream(file) {
-
+  // Reset
   results = []; done = 0; cMatch = 0; cDiff = 0; cInvalid = 0; total = 0;
   document.getElementById('tbody').innerHTML = '';
   document.getElementById('progressBar').style.width = '0%';
@@ -213,20 +660,22 @@ function startStream(file) {
       });
     }
     read();
+  })
+  .catch(e => {
+    document.getElementById('progressText').textContent = 'Error: ' + e.message;
   });
-
 }
 
 function handle(d) {
-
   if (d.type === 'start') {
     total = d.total;
     document.getElementById('progressText').textContent = 'Memvalidasi rekening...';
     document.getElementById('progressCount').textContent = `0 / ${total}`;
+    if (!total) document.getElementById('tbody').innerHTML = '';
+    else document.getElementById('tbody').innerHTML = '';
   }
 
   if (d.type === 'result') {
-
     results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
     done++;
 
@@ -234,21 +683,22 @@ function handle(d) {
     else if (d.hasil === 'TIDAK SAMA') cDiff++;
     else cInvalid++;
 
+    // Update stats
     document.getElementById('cntMatch').textContent = cMatch + ' Match';
     document.getElementById('cntDiff').textContent = cDiff + ' Beda';
     document.getElementById('cntInvalid').textContent = cInvalid + ' Invalid';
     document.getElementById('progressCount').textContent = `${done} / ${total}`;
     document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
 
+    // Add row
     let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
-
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.index}</td>
-      <td>${d.nama}</td>
-      <td>${d.rekening}</td>
-      <td>${d.bank.toUpperCase()}</td>
-      <td>${d.nama_bank}</td>
+      <td>${escHtml(d.nama)}</td>
+      <td>${escHtml(d.rekening)}</td>
+      <td>${escHtml(d.bank.toUpperCase())}</td>
+      <td>${escHtml(d.nama_bank)}</td>
       <td><span class="badge ${cls}">${d.hasil}</span></td>
     `;
     document.getElementById('tbody').appendChild(tr);
@@ -260,8 +710,26 @@ function handle(d) {
     document.getElementById('btnProses').disabled = false;
     document.getElementById('btnIcon').textContent = '▶';
     document.getElementById('progressBar').style.width = '100%';
+    showToast(`✓ Selesai! ${cMatch} match · ${cDiff} beda · ${cInvalid} invalid`);
   }
 
+  if (d.type === 'error') {
+    document.getElementById('progressText').textContent = '✗ Error: ' + d.message;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btnProses').disabled = false;
+    document.getElementById('btnIcon').textContent = '▶';
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.style.display = 'flex';
+  setTimeout(() => { t.style.display = 'none'; }, 5000);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function downloadTemplate() {
@@ -283,7 +751,6 @@ function download(fmt) {
     a.click();
   });
 }
-
 </script>
 </body>
 </html>
