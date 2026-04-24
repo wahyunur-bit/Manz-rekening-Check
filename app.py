@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, send_file, jsonify
+from flask import Flask, request, Response, render_template, send_file
 import pandas as pd
 import json
 import io
@@ -14,23 +14,8 @@ BASE_URL = "https://api.api.co.id/v1/bank/account"
 
 WHITESPACE = re.compile(r'\s+')
 
-# =============================
-# LICENSE SYSTEM (1x USE CODE)
-# =============================
-
-VALID_CODES = {
-    "MANZ-001",
-    "MANZ-002",
-    "VIP-ACCESS-01"
-}
-
-USED_CODES = set()
-
-
 def clean(s):
-    s = str(s).upper().strip()
-    s = re.sub(r'[^A-Z0-9]', '', s)
-    return s
+    return WHITESPACE.sub('', str(s).upper())
 
 
 def cek_rekening(rekening, bank):
@@ -40,14 +25,12 @@ def cek_rekening(rekening, bank):
             "bank": bank.lower().strip(),
             "account_number": str(rekening).strip()
         }
-
         res = requests.post(BASE_URL, json=payload, headers=headers, timeout=5)
 
         if res.status_code != 200:
             return None
 
         data = res.json()
-        print(data)
         if not data.get("success"):
             return None
 
@@ -69,14 +52,10 @@ def proses_satu(args):
 
     if not nama_bank:
         hasil = "TIDAK VALID"
+    elif clean(nama) == clean(nama_bank):
+        hasil = "MATCH"
     else:
-        nama1 = clean(nama)
-        nama2 = clean(nama_bank)
-
-        if nama1 == nama2 or nama1 in nama2 or nama2 in nama1:
-            hasil = "MATCH"
-        else:
-            hasil = "TIDAK SAMA"
+        hasil = "TIDAK SAMA"
 
     return {
         "type": "result",
@@ -120,29 +99,6 @@ def generate_stream(file_data):
 @app.route('/')
 def index():
     return render_template('index.html')
-
-
-# =============================
-# VERIFY LICENSE
-# =============================
-
-@app.route('/verify-code', methods=['POST'])
-def verify_code():
-    data = request.json or {}
-    code = str(data.get("code", "")).strip().upper()
-
-    if not code:
-        return jsonify({"success": False, "message": "Kode wajib diisi"})
-
-    if code not in VALID_CODES:
-        return jsonify({"success": False, "message": "Kode tidak valid"})
-
-    if code in USED_CODES:
-        return jsonify({"success": False, "message": "Kode sudah digunakan"})
-
-    USED_CODES.add(code)
-
-    return jsonify({"success": True})
 
 
 @app.route('/stream', methods=['POST'])
