@@ -11,7 +11,7 @@ import threading
 app = Flask(__name__)
 
 API_KEY = os.getenv("APICOID_API_KEY")
-BASE_URL = "https://api.api.co.id/v1/bank/account"
+BASE_URL = "https://use.api.co.id/validation/bank"
 
 WHITESPACE = re.compile(r'\s+')
 
@@ -50,36 +50,80 @@ def clean_rekening(val):
     return s
 
 
-def cek_rekening(rekening, bank):
+def normalize_bank_code(bank_input):
+    """Normalisasi kode bank — API menerima short (bca) atau full (bank_bca)."""
+    code = str(bank_input).strip().lower()
+    # Hilangkan spasi dan karakter aneh
+    code = WHITESPACE.sub('', code)
+    # Jika user sudah pakai format full (bank_xxx), pakai langsung
+    # Jika belum, biarkan saja — API otomatis menambah prefix bank_
+    return code
+
+
+def cek_rekening(rekening, bank, nama_pengirim):
+    """
+    Cek rekening via api.co.id — GET /validation/bank
+    Parameters:
+      - bank_code: kode bank (short/full format)
+      - account_number: nomor rekening
+      - account_name: nama yang akan dicocokkan
+    Returns dict: {nama_bank, is_valid, score} atau None jika gagal
+    """
     try:
         headers = {"x-api-co-id": API_KEY}
-        payload = {
-            "bank": bank.lower().strip(),
-            "account_number": str(rekening).strip()
+        bank_code = normalize_bank_code(bank)
+
+        params = {
+            "bank_code": bank_code,
+            "account_number": str(rekening).strip(),
+            "account_name": str(nama_pengirim).strip()
         }
-        res = requests.post(BASE_URL, json=payload, headers=headers, timeout=10)
+
+        print(f"[API REQ] bank_code={bank_code}, account={rekening}, name={nama_pengirim}")
+
+        res = requests.get(BASE_URL, params=params, headers=headers, timeout=15)
+
+        print(f"[API RES] HTTP {res.status_code}: {res.text[:500]}")
 
         if res.status_code != 200:
-            print(f"API HTTP {res.status_code}: {res.text[:200]}")
+            print(f"API HTTP Error {res.status_code}: {res.text[:300]}")
             return None
 
         data = res.json()
 
         if not data.get("is_success"):
-            print(f"API not success: {json.dumps(data)[:200]}")
+            print(f"API not success: {json.dumps(data)[:300]}")
             return None
 
         inner = data.get("data", {})
 
-        nama = inner.get("name")
-        if nama:
-            return str(nama)
+        # API mengembalikan:
+        # - is_valid: true/false (score >= 7.0 = valid)
+        # - score: 0.0 - 10.0 (tingkat kecocokan nama)
+        # - name: nama rekening ter-mask (contoh: "Rif**** Eln****"), null jika invalid
+        # - message: pesan status
+        # - note: catatan tambahan
 
-        print(f"API no name field: {json.dumps(inner)[:200]}")
+        nama_bank = inner.get("name")  # Nama ter-mask dari bank, bisa null
+        is_valid = inner.get("is_valid", False)
+        score = inner.get("score", 0)
+
+        return {
+            "nama_bank": nama_bank if nama_bank else None,
+            "is_valid": is_valid,
+            "score": score,
+            "message": inner.get("message", ""),
+            "note": inner.get("note", "")
+        }
+
+    except requests.exceptions.Timeout:
+        print(f"TIMEOUT cek_rekening: bank={bank}, rek={rekening}")
         return None
-
+    except requests.exceptions.ConnectionError:
+        print(f"CONNECTION ERROR cek_rekening: bank={bank}, rek={rekening}")
+        return None
     except Exception as e:
-        print("ERROR cek_rekening:", e)
+        print(f"ERROR cek_rekening: {e}")
         return None
 
 
@@ -90,14 +134,25 @@ def proses_satu(args):
     rekening = clean_rekening(row.get('rekening', ''))
     bank     = str(row.get('bank', '')).strip()
 
-    nama_bank = cek_rekening(rekening, bank)
+    result = cek_rekening(rekening, bank, nama)
 
-    if not nama_bank:
+    if result is None:
+        # API call gagal total (timeout, connection error, dsb.)
         hasil = "TIDAK VALID"
-    elif clean(nama) == clean(nama_bank):
+        nama_bank = "-"
+    elif result["is_valid"]:
+        # API bilang valid (score >= 7.0) — nama cocok
         hasil = "MATCH"
-    else:
+        nama_bank = result["nama_bank"] or "-"
+    elif result["nama_bank"]:
+        # API berhasil tapi nama tidak cocok (score < 7.0)
+        # Rekening ditemukan, tapi nama beda
         hasil = "TIDAK SAMA"
+        nama_bank = result["nama_bank"]
+    else:
+        # Rekening tidak ditemukan di bank (name=null, is_valid=false)
+        hasil = "TIDAK VALID"
+        nama_bank = "-"
 
     return {
         "type": "result",
@@ -105,8 +160,9 @@ def proses_satu(args):
         "nama": nama,
         "rekening": rekening,
         "bank": bank,
-        "nama_bank": nama_bank or "-",
-        "hasil": hasil
+        "nama_bank": nama_bank,
+        "hasil": hasil,
+        "score": result["score"] if result else 0
     }
 
 
