@@ -339,6 +339,7 @@ tbody tr:hover {
 .badge-match { background: rgba(0, 255, 163, 0.1); color: var(--green); border: 1px solid var(--green); }
 .badge-diff { background: rgba(251, 191, 36, 0.1); color: var(--yellow); border: 1px solid var(--yellow); }
 .badge-invalid { background: rgba(255, 77, 109, 0.1); color: var(--red); border: 1px solid var(--red); }
+.badge-error { background: rgba(255, 77, 109, 0.2); color: var(--red); border: 1px solid var(--red); box-shadow: 0 0 10px rgba(255, 77, 109, 0.3); }
 
 /* Gate / Login */
 #gate {
@@ -685,7 +686,10 @@ function handle(d) {
     document.getElementById('progressCount').textContent = `${done} / ${total}`;
     document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
 
-    let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
+    let cls = 'badge-invalid';
+    if (d.hasil === 'MATCH') cls = 'badge-match';
+    else if (d.hasil === 'TIDAK SAMA') cls = 'badge-diff';
+    else if (d.hasil === 'ERROR') cls = 'badge-error';
     const tr = document.getElementById(`row-${d.index}`);
     if (tr) {
       tr.innerHTML = `
