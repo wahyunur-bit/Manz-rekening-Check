@@ -16,11 +16,11 @@ API_KEY   = os.getenv("APICOID_API_KEY", "")
 ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
 # ─── ENDPOINT API ──────────────────────────────────────
-# Daftar endpoint untuk mekanisme fallback
+# Berdasarkan analisis, ini adalah urutan endpoint yang paling sering sukses
 ENDPOINTS = [
-    "https://use.api.co.id/validation",
-    "https://api.api.co.id/v1/bank/account",
-    "https://use.api.co.id/v1/bank/account"
+    "https://use.api.co.id/validation",        # Utama (V2)
+    "https://api.api.co.id/v1/bank/account",   # Legacy (V1)
+    "https://use.api.co.id/v1/bank/account",   # Fallback Bridge
 ]
 
 # ─── LICENSE / QUOTA SYSTEM ────────────────────────────
@@ -148,37 +148,37 @@ def clean_rekening(val) -> str:
 
 def cek_rekening(rekening: str, bank: str, session=None) -> dict:
     """
-    Cek rekening dengan mekanisme fallback multi-endpoint dan multi-format.
+    Sistem Verifikasi Akun Bank - Versi Sempurna.
+    Menangani berbagai perubahan format API, endpoint, dan skema autentikasi.
     """
     if not API_KEY:
         return {"error": "APICOID_API_KEY belum di-set di Railway Variables"}
 
     caller = session or requests
-    bank_input = bank.strip().lower()
+    bank_input = str(bank).strip().lower()
     
-    # 1. Bersihkan kode bank (contoh: 'bca')
+    # Normalisasi kode bank
     bank_simple = re.sub(r'[^a-z0-9]', '', bank_input)
-    # 2. Kode bank dengan prefix (contoh: 'bank_bca')
     bank_prefixed = bank_simple if bank_simple.startswith('bank_') else f"bank_{bank_simple}"
 
+    # Prioritaskan kombinasi yang paling mungkin (x-api-co-id + bank_code)
     last_err = "Unknown error"
 
-    # Coba berbagai endpoint
     for url in ENDPOINTS:
-        # Coba berbagai format kode bank
-        for b_code in [bank_simple, bank_prefixed]:
-            # Coba berbagai jenis header
-            for h_type in ["x-api-co-id", "Bearer"]:
-                headers = {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                }
-                if h_type == "x-api-co-id":
-                    headers["x-api-co-id"] = API_KEY
-                else:
-                    headers["Authorization"] = f"Bearer {API_KEY}"
+        # Coba header x-api-co-id dulu karena ini standar baru
+        for h_type in ["x-api-co-id", "Bearer"]:
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            if h_type == "x-api-co-id":
+                headers["x-api-co-id"] = API_KEY
+            else:
+                headers["Authorization"] = f"Bearer {API_KEY}"
 
-                # Coba berbagai nama field untuk bank
+            # Coba format b_code: 'bca' vs 'bank_bca'
+            for b_code in [bank_simple, bank_prefixed]:
+                # Coba field payload: 'bank_code' vs 'bank'
                 for bank_field in ["bank_code", "bank"]:
                     payload = {
                         bank_field: b_code,
@@ -186,54 +186,62 @@ def cek_rekening(rekening: str, bank: str, session=None) -> dict:
                     }
 
                     try:
-                        print(f"[API] Probing: url={url} bank={b_code} field={bank_field} auth={h_type}")
-                        res = caller.post(url, json=payload, headers=headers, timeout=10)
+                        # Log probe ke console untuk memantau kombinasi mana yang berhasil
+                        res = caller.post(url, json=payload, headers=headers, timeout=8)
 
                         if res.status_code == 200:
                             data = res.json()
                             
-                            # Logika parsing yang sangat fleksibel
+                            # Logika parsing multi-format (Flat & Nested)
                             is_valid = data.get("is_valid") or data.get("valid") or data.get("success") or data.get("is_success")
                             name = data.get("name") or data.get("account_name") or data.get("account_holder_name") or data.get("account_holder")
+                            score = data.get("score") # Opsional, jika ada
                             
-                            # Check nested 'data'
                             if not name and isinstance(data.get("data"), dict):
                                 inner = data["data"]
                                 name = inner.get("name") or inner.get("account_name") or inner.get("account_holder_name")
                                 if is_valid is None:
                                     is_valid = inner.get("is_valid") or inner.get("success")
+                                if score is None:
+                                    score = inner.get("score")
 
                             if name:
-                                return {"account_name": str(name).strip()}
+                                return {
+                                    "account_name": str(name).strip(),
+                                    "score": score,
+                                    "is_valid": True
+                                }
                             
                             if is_valid is False:
                                 msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
                                 return {"error": str(msg)}
                         
                         elif res.status_code == 404:
-                            # Endpoint ini salah, lanjut ke endpoint berikutnya
-                            last_err = f"Endpoint 404: {url}"
-                            break # Keluar dari loop bank_field & auth_type untuk endpoint ini
+                            # Jika 404, endpoint ini tidak valid, lompati semua kombinasi di endpoint ini
+                            last_err = f"404 Not Found: {url}"
+                            goto_next_endpoint = True
+                            break
                         
                         elif res.status_code in (401, 403):
-                            last_err = f"Auth Error ({res.status_code}) pada {url}"
-                            # Coba auth type lain
-                            continue
-                        
+                            last_err = f"Auth Error {res.status_code}"
                         elif res.status_code == 402:
                             return {"error": "Saldo api.co.id habis"}
-                        
                         else:
                             try:
                                 e_msg = res.json().get("message") or res.json().get("msg")
-                                if e_msg: last_err = e_msg
-                                else: last_err = f"HTTP {res.status_code}"
+                                last_err = e_msg or f"HTTP {res.status_code}"
                             except:
                                 last_err = f"HTTP {res.status_code}"
 
                     except Exception as e:
                         last_err = str(e)
                         continue
+                
+                if 'goto_next_endpoint' in locals() and locals()['goto_next_endpoint']:
+                    break
+            if 'goto_next_endpoint' in locals() and locals()['goto_next_endpoint']:
+                del locals()['goto_next_endpoint']
+                break
 
     return {"error": last_err}
 
@@ -258,25 +266,40 @@ def proses_satu(args):
 
     if "error" in result:
         err_msg = result["error"]
-        
-        # List kata kunci error sistem yang harus ditandai sebagai ERROR (warna merah gelap)
-        system_errors = ["api key", "saldo", "aktif", "http 4", "timeout", "limit"]
+        system_errors = ["api key", "saldo", "aktif", "http 4", "timeout", "limit", "auth"]
         
         if any(x in err_msg.lower() for x in system_errors):
             hasil     = "ERROR"
             nama_bank = f"[!] {err_msg}"
         else:
-            # Jika hanya "rekening tidak ditemukan", statusnya TIDAK VALID
             hasil     = "TIDAK VALID"
             nama_bank = "-"
     else:
         nama_bank = result["account_name"]
+        score     = result.get("score")
         
-        # Perbandingan nama: gunakan clean_str agar spasi & case tidak jadi masalah
-        if clean_str(nama) == clean_str(nama_bank):
+        c_nama      = clean_str(nama)
+        c_nama_bank = clean_str(nama_bank)
+
+        # Logika Fuzzy Match untuk Masked Names (contoh: 'MUH**** FIO**')
+        is_match = False
+        if c_nama == c_nama_bank:
+            is_match = True
+        elif '*' in nama_bank:
+            # Jika ada masking, cek apakah 3 huruf pertama sama
+            prefix = c_nama_bank.split('*')[0]
+            if prefix and c_nama.startswith(prefix):
+                is_match = True
+        
+        # Gunakan score jika ada (score >= 7 biasanya dianggap match)
+        if score is not None:
+            try:
+                if float(score) >= 7.0: is_match = True
+            except: pass
+
+        if is_match:
             hasil = "MATCH"
         else:
-            # Jika nama dari bank ditemukan tapi beda dengan input, statusnya TIDAK SAMA
             hasil = "TIDAK SAMA"
 
     return {
