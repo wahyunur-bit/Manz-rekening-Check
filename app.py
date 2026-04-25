@@ -214,6 +214,7 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
     return None
 
 
+def proses_satu(args):
     i, row, session = args
 
     nama     = str(row.get('nama', '')).strip()
