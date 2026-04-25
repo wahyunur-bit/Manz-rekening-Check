@@ -156,8 +156,8 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
         return None
 
     bank_clean = normalize_bank_code(bank_code_raw)
-    # Daftar format yang akan dicoba (prefix dan non-prefix)
-    formats_to_try = [f"bank_{bank_clean}", bank_clean]
+    # Daftar format: Coba format asli (misal: bca) dulu karena ini 99% yang benar sesuai panduan
+    formats_to_try = [bank_clean, f"bank_{bank_clean}"]
     
     headers = {
         "x-api-co-id": API_KEY,
@@ -173,11 +173,10 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            res = requests.get(BASE_URL, params=params, headers=headers, timeout=5)
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=4)
             
             # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
             if res.status_code == 429:
-                print(f"[RATE LIMIT] Waiting 1s...")
                 time.sleep(1)
                 continue
             elif res.status_code in [500, 502, 503, 504]:
@@ -257,9 +256,9 @@ def generate_stream(records, code, start_quota):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Konfigurasi MENTOK OPTIMAL: 25 workers
-        # Sangat cepat untuk batch besar, tetap aman dengan Redis DECR
-        with concurrent.futures.ThreadPoolExecutor(max_workers=25) as executor:
+        # Konfigurasi TURBO: 50 workers
+        # Sangat cepat, memproses hingga 50 rekening sekaligus.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
