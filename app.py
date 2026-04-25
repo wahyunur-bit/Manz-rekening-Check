@@ -194,11 +194,17 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
             data = res.json()
             inner = data.get("data")
             
+            # DEBUG: Print full response if it fails or for tracking
+            if not data.get("is_success"):
+                print(f"[API FAIL] {rekening} | {current_bank_code} | Msg: {data.get('message')} | Resp: {data}")
+            
             # LOGIKA SUKSES: Jika API merespon sukses dan ada data objeknya
             if data.get("is_success") and inner:
-                print(f"[API OK] Found: {inner.get('name')} | Score: {inner.get('score')}")
+                # API api.co.id menggunakan field 'account_name' untuk nama pemilik
+                account_name = inner.get("account_name") or inner.get("name")
+                print(f"[API OK] Found: {account_name} | Score: {inner.get('score')}")
                 return {
-                    "nama_bank": inner.get("name"),
+                    "nama_bank": account_name,
                     "is_valid": inner.get("is_valid", False),
                     "score": inner.get("score", 0)
                 }
@@ -209,6 +215,12 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
             
         except Exception as e:
             print(f"[API ERROR] {rekening} | {e}")
+            try:
+                # Jika ada response tapi error saat parse JSON, print text-nya
+                if 'res' in locals():
+                    print(f"[API RAW ERROR] {res.text}")
+            except:
+                pass
 
     print(f"[DONE] Semua format gagal untuk: {rekening}")
     return None
