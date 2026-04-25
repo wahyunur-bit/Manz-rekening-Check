@@ -178,11 +178,11 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
         "account_name": nama_input
     }
 
-    # Coba 2x (1 normal + 1 retry)
+    # Coba 2x (1 normal + 1 retry jika timeout)
     for attempt in range(2):
         try:
             print(f"[CEK] {bank_code} | {rekening} | try={attempt+1}")
-            res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=20)
+            res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=45)
             
             if res.status_code == 200:
                 data = res.json()
