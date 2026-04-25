@@ -706,12 +706,11 @@ td:nth-child(2) {
             <th>Rekening</th>
             <th>Bank</th>
             <th>Nama di Bank</th>
-            <th>Score</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="7" style="padding:0;border:none">
+          <tr><td colspan="6" style="padding:0;border:none">
             <div class="empty-state">
               <span class="empty-icon">🔍</span>
               <div class="empty-text">Upload file dan klik Proses untuk mulai validasi</div>
@@ -864,22 +863,20 @@ function handle(d) {
     document.getElementById('progressCount').textContent = `0 / ${total}`;
     
     let html = '';
-    if (total > 0) {
       for(let i = 1; i <= total; i++) {
         html += `<tr id="row-${i}">
           <td>${i}</td>
-          <td colspan="6" style="color:var(--muted); font-style:italic;">⏳ Mengambil data...</td>
+          <td colspan="5" style="color:var(--muted); font-style:italic;">⏳ Mengambil data...</td>
         </tr>`;
       }
     } else {
-      html = `<tr><td colspan="7"><div class="empty-state"><span class="empty-icon">🔍</span><div class="empty-text">Tidak ada data di file Excel</div></div></td></tr>`;
+      html = `<tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🔍</span><div class="empty-text">Tidak ada data di file Excel</div></div></td></tr>`;
     }
     document.getElementById('tbody').innerHTML = html;
   }
 
   if (d.type === 'result') {
-    let scoreVal = d.score !== undefined ? d.score : 0;
-    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, scoreVal, d.hasil]);
+    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
     done++;
 
     if (d.hasil === 'MATCH') cMatch++;
@@ -895,8 +892,6 @@ function handle(d) {
 
     // Update specific row by ID instead of appending to prevent UI scrambling
     let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
-    let scoreCls = scoreVal >= 7 ? 'color:var(--green)' : scoreVal > 0 ? 'color:var(--yellow)' : 'color:var(--red)';
-    const tr = document.getElementById(`row-${d.index}`);
     if (tr) {
       tr.innerHTML = `
         <td>${d.index}</td>
@@ -904,7 +899,6 @@ function handle(d) {
         <td>${escHtml(d.rekening)}</td>
         <td>${escHtml(d.bank.toUpperCase())}</td>
         <td>${escHtml(d.nama_bank)}</td>
-        <td style="${scoreCls};font-weight:600">${scoreVal}</td>
         <td><span class="badge ${cls}">${d.hasil}</span></td>
       `;
     }
