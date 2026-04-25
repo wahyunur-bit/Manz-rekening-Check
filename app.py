@@ -195,10 +195,10 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
             "account_name": nama_input
         }
 
-        # Retry hingga 3x untuk setiap kode bank (mengatasi timeout sporadis)
+        # Retry hingga 3x (mengatasi rate-limit dan timeout sporadis)
         for attempt in range(3):
             try:
-                print(f"[CEK] GET {BASE_URL_OFFICIAL} | bank={bank_code} | rek={rekening} | attempt={attempt+1}")
+                print(f"[CEK] bank={bank_code} | rek={rekening} | attempt={attempt+1}")
                 res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=30)
                 
                 if res.status_code == 200:
@@ -211,21 +211,24 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
                             res_name = inner.get("name") or inner.get("account_name")
                             is_valid = inner.get("is_valid", False)
                             score = inner.get("score", 0)
-                            api_msg = inner.get("message", "")
 
                             if res_name:
                                 return {"account_name": str(res_name).strip(), "score": score}
                             
                             if not is_valid:
-                                last_err = api_msg or "Bank account was not found"
-                                break  # Kode bank ini gagal, coba kode berikutnya
+                                last_err = inner.get("message") or "Bank account was not found"
+                                # Mungkin false negative dari rate limit, retry
+                                if attempt < 2:
+                                    time.sleep(2)
+                                    continue
+                                break  # Sudah 3x tetap not found, coba kode berikutnya
                     else:
                         msg = data.get("message", "Unknown error")
                         print(f"[FAIL] {msg}")
                         last_err = msg
                         if "api key" in msg.lower() or "unauthorized" in msg.lower():
                             return {"error": msg}
-                        break  # Kode bank ini gagal, coba kode berikutnya
+                        break
                 
                 elif res.status_code == 401:
                     return {"error": "API Key tidak valid atau expired"}
@@ -236,16 +239,15 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
                     break
                     
             except requests.exceptions.Timeout:
-                print(f"[TIMEOUT] attempt {attempt+1}/3 untuk {bank_code} | {rekening}")
+                print(f"[TIMEOUT] attempt {attempt+1}/3")
                 last_err = "Timeout - server lambat"
                 if attempt < 2:
-                    time.sleep(2)  # Tunggu 2 detik sebelum retry
+                    time.sleep(3)
                 continue
             except requests.exceptions.ConnectionError:
-                print(f"[CONN ERR] attempt {attempt+1}/3")
                 last_err = "Koneksi gagal"
                 if attempt < 2:
-                    time.sleep(2)
+                    time.sleep(3)
                 continue
             except Exception as e:
                 last_err = str(e)
@@ -333,34 +335,33 @@ def generate_stream(records: list, code: str):
     processed = 0
     try:
         with requests.Session() as session:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as exe:
-                futures = {
-                    exe.submit(proses_satu, (i, row, session)): i
-                    for i, row in enumerate(records)
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        data = future.result()
-                    except Exception as e:
-                        data = {
-                            "type": "result",
-                            "index": futures[future] + 1,
-                            "nama": "-", "rekening": "-", "bank": "-",
-                            "nama_bank": str(e), "hasil": "ERROR"
-                        }
+            # SEQUENTIAL: Proses satu-per-satu agar API tidak rate-limit
+            for i, row in enumerate(records):
+                try:
+                    data = proses_satu((i, row, session))
+                except Exception as e:
+                    data = {
+                        "type": "result",
+                        "index": i + 1,
+                        "nama": "-", "rekening": "-", "bank": "-",
+                        "nama_bank": str(e), "hasil": "ERROR"
+                    }
 
-                    # Kuota hanya dipotong untuk MATCH, TIDAK SAMA, TIDAK VALID
-                    # ERROR (timeout/jaringan) TIDAK memotong kuota
-                    hasil = data.get("hasil", "")
-                    if hasil != "ERROR":
-                        sisa = quota_decr(code)
-                        data["sisa_kuota"] = sisa
-                    else:
-                        # Untuk ERROR, tampilkan kuota saat ini tanpa potong
-                        data["sisa_kuota"] = quota_get(code)
-                    processed += 1
+                # Kuota hanya dipotong untuk MATCH, TIDAK SAMA, TIDAK VALID
+                # ERROR (timeout/jaringan) TIDAK memotong kuota
+                hasil = data.get("hasil", "")
+                if hasil != "ERROR":
+                    sisa = quota_decr(code)
+                    data["sisa_kuota"] = sisa
+                else:
+                    data["sisa_kuota"] = quota_get(code)
+                processed += 1
 
-                    yield f"data: {json.dumps(data)}\n\n"
+                yield f"data: {json.dumps(data)}\n\n"
+
+                # Delay antar request agar API tidak rate-limit
+                if i < len(records) - 1:
+                    time.sleep(1)
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
