@@ -449,6 +449,37 @@ def download():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+@app.route('/supported-banks')
+def supported_banks():
+    """Download daftar semua bank yang didukung oleh API sebagai file Excel."""
+    try:
+        res = requests.get(
+            "https://use.api.co.id/validation/bank/available",
+            headers={"x-api-co-id": API_KEY},
+            timeout=15
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("is_success") and data.get("data", {}).get("banks"):
+                banks = data["data"]["banks"]
+                rows = []
+                for i, b in enumerate(banks, 1):
+                    nama = b.get("bank_name", "")
+                    kode = b.get("bank_code", "")
+                    # Buat ketikan acuan: hapus prefix bank_ dan uppercase
+                    acuan = kode.replace("bank_", "", 1).upper() if kode.startswith("bank_") else kode.upper()
+                    rows.append({"No": i, "Nama Bank": nama.title(), "Kode API": kode, "Ketikan di Excel": acuan})
+                df = pd.DataFrame(rows)
+                buf = io.BytesIO()
+                df.to_excel(buf, index=False)
+                buf.seek(0)
+                return send_file(buf, as_attachment=True, download_name='daftar_bank_support.xlsx',
+                                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return "Gagal mengambil daftar bank dari API.", 500
+    except Exception as e:
+        return f"Error: {e}", 500
+
+
 # ─── ADMIN API ─────────────────────────────────────────
 
 def _admin_check():
