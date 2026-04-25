@@ -19,7 +19,6 @@ REDIS_URL = os.getenv("REDIS_URL")
 r = None
 if REDIS_URL:
     try:
-        # Menangani prefix redis:// jika diperlukan (Railway biasanya memberikan redis://)
         r = redis.from_url(REDIS_URL, decode_responses=True)
         r.ping()
         print("[DB] Connected to Redis")
@@ -28,7 +27,6 @@ if REDIS_URL:
 
 WHITESPACE = re.compile(r'\s+')
 
-# --- Activation Code System ---
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'codes.json')
 codes_lock = threading.Lock()
 
@@ -59,7 +57,7 @@ def get_quota(code):
                 return int(val)
         except Exception as e:
             print(f"[DB ERROR] get_quota: {e}")
-    
+
     # Fallback to local
     codes = load_codes()
     quota = codes.get(code)
@@ -76,7 +74,7 @@ def update_quota(code, new_q):
             return
         except Exception as e:
             print(f"[DB ERROR] update_quota: {e}")
-            
+
     with codes_lock:
         codes = load_codes()
         codes[code] = new_q
@@ -87,13 +85,11 @@ def deduct_quota(code):
     """Potong kuota 1 secara atomic menggunakan Redis DECR."""
     if r:
         try:
-            # Gunakan DECR untuk keamanan concurrency
             new_q = r.decr(f"code:{code}")
             return new_q
         except Exception as e:
             print(f"[DB ERROR] deduct_quota: {e}")
-            
-    # Fallback manual lock
+
     with codes_lock:
         current = get_quota(code)
         if current is None: return 0
@@ -106,7 +102,6 @@ def migrate_to_redis():
     """Pindahkan data dari codes.json ke Redis jika Redis masih kosong."""
     if not r: return
     try:
-        # Hanya migrasi jika Redis kosong (size 0)
         if r.dbsize() == 0 and os.path.exists(CODES_FILE):
             print("[DB] Migrating codes.json data to Redis...")
             data = load_codes()
@@ -118,8 +113,6 @@ def migrate_to_redis():
     except Exception as e:
         print(f"[DB ERROR] Migration failed: {e}")
 
-
-# --- Helpers ---
 def clean(s):
     return WHITESPACE.sub('', str(s).upper())
 
@@ -127,7 +120,6 @@ def clean(s):
 def clean_rekening(val):
     """Bersihkan nomor rekening — hilangkan .0 dari float pandas."""
     s = str(val).strip()
-    # Jika pandas baca sebagai float misal "1234567890.0"
     try:
         if '.' in s:
             s = str(int(float(s)))
@@ -146,19 +138,13 @@ def normalize_bank_code(bank_input):
 
 
 def cek_rekening(rekening, bank_code_raw, nama_pengirim):
-    """
-    Cek rekening dengan Logika Robust: 
-    Mencoba format 'bank_xxx' dan 'xxx' secara bergantian.
-    Kondisi sukses: API mengembalikan is_success=True dan data!=None.
-    """
     if not API_KEY:
         print("[ERROR] API_KEY tidak terkonfigurasi (None)")
         return None
 
     bank_clean = normalize_bank_code(bank_code_raw)
-    # Daftar format: Coba format asli (misal: bca) dulu karena ini 99% yang benar sesuai panduan
     formats_to_try = [bank_clean, f"bank_{bank_clean}"]
-    
+
     headers = {
         "x-api-co-id": API_KEY,
         "Accept": "application/json"
@@ -174,8 +160,7 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
             res = requests.get(BASE_URL, params=params, headers=headers, timeout=4)
-            
-            # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
+
             if res.status_code == 429:
                 time.sleep(1)
                 continue
@@ -188,9 +173,7 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
             data = res.json()
             inner = data.get("data")
-            
-            # LOGIKA SUKSES: Jika API merespon sukses dan ada data objeknya
-            # Kami tidak lagi mewajibkan score > 0 agar tidak terjadi loop tak berujung jika account memang tidak ketemu
+
             if data.get("is_success") and inner:
                 print(f"[API OK] Found: {inner.get('name')} | Score: {inner.get('score')}")
                 return {
@@ -198,11 +181,10 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
                     "is_valid": inner.get("is_valid", False),
                     "score": inner.get("score", 0)
                 }
-            
-            # Jika is_success False, tampilkan alasannya (misal: "Bank code not found")
+
             msg = data.get("message", "Fail")
             print(f"[API FAIL] {current_bank_code}: {msg}")
-            
+
         except Exception as e:
             print(f"[API ERROR] {e}")
 
@@ -212,7 +194,6 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
 def proses_satu(args):
     i, row = args
-
     nama     = str(row.get('nama', '')).strip()
     rekening = clean_rekening(row.get('rekening', ''))
     bank     = str(row.get('bank', '')).strip()
@@ -220,21 +201,15 @@ def proses_satu(args):
     result = cek_rekening(rekening, bank, nama)
 
     if result is None:
-        # API call gagal total (timeout, connection error, dsb.)
         hasil = "TIDAK VALID"
         nama_bank = "-"
     elif result["is_valid"]:
-        # API bilang valid (score >= 7.0) — nama cocok
-        # Karena user tidak ingin ada sensor (Budi***), kita pakai langsung nama asli dari input Excel
         hasil = "MATCH"
         nama_bank = nama.upper()
     elif result["nama_bank"]:
-        # API berhasil tapi nama tidak cocok (score < 7.0)
-        # Rekening ditemukan, tapi nama beda
         hasil = "TIDAK SAMA"
         nama_bank = result["nama_bank"]
     else:
-        # Rekening tidak ditemukan di bank (name=null, is_valid=false)
         hasil = "TIDAK VALID"
         nama_bank = "-"
 
@@ -253,11 +228,8 @@ def proses_satu(args):
 def generate_stream(records, code, start_quota):
     try:
         total = len(records)
-
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Konfigurasi TURBO: 50 workers
-        # Sangat cepat, memproses hingga 50 rekening sekaligus.
         with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
@@ -269,17 +241,12 @@ def generate_stream(records, code, start_quota):
                 try:
                     data = future.result()
                     processed_count += 1
-                    
-                    # POTONG KUOTA REAL-TIME
                     new_q = deduct_quota(code)
                     data['sisa_kuota'] = new_q
-                        
                     yield f"data: {json.dumps(data)}\n\n"
-                    
                     if new_q <= 0:
                         yield f"data: {json.dumps({'type':'error','message':'Kuota telah habis di tengah proses.'})}\n\n"
                         break
-                        
                 except Exception as e:
                     yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
@@ -298,17 +265,13 @@ def index():
 def verify_code():
     body = request.json or {}
     code = str(body.get('code', '')).strip()
-
     if not code:
         return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
-
     quota = get_quota(code)
     if quota is None:
         return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
-
     if quota <= 0:
         return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
-
     return jsonify({"valid": True, "quota": quota, "message": "Kode valid, selamat menggunakan!"})
 
 
@@ -317,11 +280,9 @@ def stream():
     code = request.form.get('code', '')
     if 'file' not in request.files:
         return jsonify({"error": "Tidak ada file"}), 400
-
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "File kosong"}), 400
-
     try:
         file_data = io.BytesIO(file.read())
         df = pd.read_excel(file_data)
@@ -334,13 +295,9 @@ def stream():
     quota = get_quota(code)
     if quota is None:
         return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
-            
     if quota <= 0:
         return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
-            
     start_quota = quota
-
-    # Lanjutkan proses jika kuota aman
     return Response(
         generate_stream(records, code, start_quota),
         mimetype='text/event-stream',
@@ -375,9 +332,7 @@ def supported_banks():
             df = pd.DataFrame(banks)
             df.index = df.index + 1
             df.columns = ["Nama Bank Resmi", "Kode Asli API"]
-            # Berikan kolom panduan ketikan yang gampang di-copy
             df["Ketikan di Excel (Acuan)"] = df["Kode Asli API"].str.replace("bank_", "", n=1).str.upper()
-            
             buf = io.BytesIO()
             df.to_excel(buf, index=False)
             buf.seek(0)
@@ -393,17 +348,13 @@ def download():
     body = request.json or {}
     raw  = body.get('data', [])
     fmt  = body.get('format', 'xlsx')
-
     cols = ['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Score', 'Hasil']
     df = pd.DataFrame(raw, columns=cols)
-
     buf = io.BytesIO()
-
     if fmt == 'csv':
         df.to_csv(buf, index=False, sep=',', encoding='utf-8-sig')
         buf.seek(0)
-        return send_file(buf, as_attachment=True, download_name='hasil.csv',
-                         mimetype='text/csv')
+        return send_file(buf, as_attachment=True, download_name='hasil.csv', mimetype='text/csv')
     else:
         df.to_excel(buf, index=False)
         buf.seek(0)
@@ -412,8 +363,6 @@ def download():
 
 
 if __name__ == '__main__':
-    # Jalankan migrasi satu kali saat startup
     migrate_to_redis()
-    
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
