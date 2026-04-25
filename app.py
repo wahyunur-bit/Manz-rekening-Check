@@ -150,18 +150,16 @@ NUMERIC_BANKS = {
 
 # ─── CORE API CALL ─────────────────────────────────────
 
-def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -> dict:
+def cek_rekening(rekening: str, bank: str, nama_input: str = "") -> dict:
     """
     Triple-endpoint strategy (urutan prioritas):
-    1. POST api.api.co.id/v1/bank/account  → nama FULL tanpa sensor (script lama)
+    1. POST api.api.co.id/v1/bank/account  → nama FULL tanpa sensor
     2. GET  use.api.co.id/validation/bank  → bank_bca format + score
     3. GET  use.api.co.id/validation/bank  → bca format (short) + score
-    Return: {"account_name", "score", "is_valid"} atau {"error"}
     """
     if not API_KEY:
         return {"error": "API KEY KOSONG"}
 
-    caller     = session or requests
     bank_raw   = str(bank).strip().lower()
     rekening   = str(rekening).strip()
     nama_input = str(nama_input).strip()
@@ -174,39 +172,40 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
         short = bank_clean
         full  = f"bank_{bank_clean}"
 
-    headers_base = {"x-api-co-id": API_KEY, "Accept": "application/json"}
+    hdrs = {"x-api-co-id": API_KEY, "Accept": "application/json"}
 
-    # ── Strategi 1: POST (endpoint lama, nama FULL) ──────
+    # ── Strategi 1: POST endpoint lama (nama FULL) ──────────
     def try_post() -> dict | None:
         try:
             payload = {"bank": short, "account_number": rekening}
-            print(f"[POST] {BASE_URL_POST} | bank={short} | rek={rekening}")
-            res = caller.post(BASE_URL_POST, json=payload,
-                              headers={**headers_base, "Content-Type": "application/json"},
-                              timeout=15)
-            print(f"[POST-RESP] {res.status_code} | {res.text[:300]}")
+            print(f"[POST] bank={short} rek={rekening}")
+            res = requests.post(BASE_URL_POST, json=payload,
+                                headers={**hdrs, "Content-Type": "application/json"},
+                                timeout=15)
+            print(f"[POST-RESP] {res.status_code} {res.text[:200]}")
             if res.status_code == 200:
-                data = res.json()
-                if data.get("is_success"):
-                    inner = data.get("data", {})
+                d = res.json()
+                if d.get("is_success"):
+                    inner = d.get("data", {})
                     nama = inner.get("name") or inner.get("account_name")
                     if nama:
                         return {"account_name": str(nama).strip(), "score": 10.0, "is_valid": True}
             return None
-        except Exception:
+        except Exception as e:
+            print(f"[POST-EX] {type(e).__name__}: {e}")
             return None
 
-    # ── Strategi 2 & 3: GET (endpoint resmi, score-based) ─
+    # ── Strategi 2 & 3: GET endpoint resmi (score-based) ────
     def try_get(bank_code: str) -> dict | None:
         try:
             params = {"bank_code": bank_code, "account_number": rekening, "account_name": nama_input}
-            print(f"[GET] {BASE_URL_GET} | bank={bank_code} | rek={rekening}")
-            res = caller.get(BASE_URL_GET, params=params, headers=headers_base, timeout=20)
-            print(f"[GET-RESP] {res.status_code} | {res.text[:300]}")
+            print(f"[GET] bank={bank_code} rek={rekening}")
+            res = requests.get(BASE_URL_GET, params=params, headers=hdrs, timeout=25)
+            print(f"[GET-RESP] {res.status_code} {res.text[:200]}")
             if res.status_code == 200:
-                data = res.json()
-                if data.get("is_success"):
-                    inner    = data.get("data", {})
+                d = res.json()
+                if d.get("is_success"):
+                    inner    = d.get("data", {})
                     nama     = inner.get("name") or inner.get("account_name")
                     is_valid = inner.get("is_valid", False)
                     score    = float(inner.get("score") or 0)
@@ -215,29 +214,33 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
                                 "is_valid": is_valid, "score": score}
                     return {"error": inner.get("message") or "Bank account was not found"}
                 else:
-                    msg = data.get("message", "")
+                    msg = d.get("message", "")
                     if "api key" in msg.lower() or "unauthorized" in msg.lower():
                         return {"error": msg}
                     return None
-        except Exception:
+            elif res.status_code in (401, 403):
+                return {"error": f"HTTP {res.status_code}"}
+            return None
+        except Exception as e:
+            print(f"[GET-EX] {type(e).__name__}: {e}")
             return None
 
-    # ── Eksekusi urutan prioritas ─────────────────────────
-    result = try_post()
-    if result and "error" not in result:
-        return result
+    # ── Eksekusi urutan ──────────────────────────────────────
+    r = try_post()
+    if r and "error" not in r:
+        return r
 
-    result = try_get(full)
-    if result is not None:
-        if "error" in result and "not found" in result["error"].lower():
-            return result
-        if "error" not in result:
-            return result
+    r = try_get(full)
+    if r is not None:
+        if "error" in r and "not found" in r["error"].lower():
+            return r  # Definitif tidak ada rekening
+        if "error" not in r:
+            return r
 
     if short != full:
-        result = try_get(short)
-        if result is not None:
-            return result
+        r = try_get(short)
+        if r is not None:
+            return r
 
     return {"error": "Timeout - server lambat"}
 
@@ -245,7 +248,7 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
 # ─── PROSES 1 BARIS ────────────────────────────────────
 
 def proses_satu(args):
-    i, row, session = args
+    i, row = args
 
     nama     = str(row.get('nama', '')).strip()
     rekening = clean_rekening(row.get('rekening', ''))
@@ -258,7 +261,7 @@ def proses_satu(args):
             "nama_bank": "-", "hasil": "TIDAK VALID"
         }
 
-    result = cek_rekening(rekening, bank, nama, session)
+    result = cek_rekening(rekening, bank, nama)
 
     if "error" in result:
         err_msg = result["error"]
@@ -312,34 +315,33 @@ def generate_stream(records: list, code: str):
 
     processed = 0
     try:
-        with requests.Session() as session:
-            # 4 workers: lebih cepat dari 2, aman dari rate-limit vs 10 lama
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as exe:
-                futures = {
-                    exe.submit(proses_satu, (i, row, session)): i
-                    for i, row in enumerate(records)
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        data = future.result()
-                    except Exception as e:
-                        data = {
-                            "type": "result",
-                            "index": futures[future] + 1,
-                            "nama": "-", "rekening": "-", "bank": "-",
-                            "nama_bank": str(e), "hasil": "ERROR"
-                        }
+        # 4 workers paralel — requests langsung per thread (thread-safe)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as exe:
+            futures = {
+                exe.submit(proses_satu, (i, row)): i
+                for i, row in enumerate(records)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    data = future.result()
+                except Exception as e:
+                    data = {
+                        "type": "result",
+                        "index": futures[future] + 1,
+                        "nama": "-", "rekening": "-", "bank": "-",
+                        "nama_bank": str(e), "hasil": "ERROR"
+                    }
 
-                    # Kuota: hanya potong MATCH/BEDA/TIDAK VALID — ERROR tidak dipotong
-                    hasil = data.get("hasil", "")
-                    if hasil != "ERROR":
-                        sisa = quota_decr(code)
-                        data["sisa_kuota"] = sisa
-                    else:
-                        data["sisa_kuota"] = quota_get(code)
-                    processed += 1
+                # Kuota: hanya potong MATCH/BEDA/TIDAK VALID — ERROR tidak dipotong
+                hasil = data.get("hasil", "")
+                if hasil != "ERROR":
+                    sisa = quota_decr(code)
+                    data["sisa_kuota"] = sisa
+                else:
+                    data["sisa_kuota"] = quota_get(code)
+                processed += 1
 
-                    yield f"data: {json.dumps(data)}\n\n"
+                yield f"data: {json.dumps(data)}\n\n"
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
