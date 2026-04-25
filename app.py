@@ -125,14 +125,19 @@ def clean(s):
 
 
 def clean_rekening(val):
-    """Bersihkan nomor rekening — hilangkan .0 dari float pandas."""
+    if val is None: return ""
     s = str(val).strip()
-    # Jika pandas baca sebagai float misal "1234567890.0"
-    try:
-        if '.' in s:
-            s = str(int(float(s)))
-    except (ValueError, OverflowError):
-        pass
+    
+    # Jika dalam format scientific (E+), konversi hati-hati
+    if 'e' in s.lower() or 'E' in s.lower():
+        try:
+            from decimal import Decimal
+            s = format(Decimal(s), 'f').split('.')[0]
+        except:
+            pass
+            
+    # Hapus semua karakter non-digit
+    s = re.sub(r'\D', '', s)
     return s
 
 
@@ -175,8 +180,15 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
 
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            # Timeout ditingkatkan: 10s connect, 30s read untuk stabilitas
+            # Coba GET dulu
             res = caller.get(BASE_URL, params=params, headers=headers, timeout=(10, 30))
+            
+            # Jika GET tidak memuaskan (200 tapi data kosong), coba POST (beberapa bank lebih sensitif)
+            if res.status_code == 200:
+                temp_data = res.json()
+                if temp_data.get("is_success") and not temp_data.get("data"):
+                    print(f"[RETRY POST] {rekening} | {current_bank_code}")
+                    res = caller.post(BASE_URL, json=params, headers=headers, timeout=(10, 30))
             
             # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
             if res.status_code == 429:
@@ -242,9 +254,13 @@ def proses_satu(args):
         hasil = "TIDAK SAMA"
         nama_bank = result["nama_bank"]
     else:
-        # Rekening tidak ditemukan di bank (name=null, is_valid=false)
+        # Rekening tidak ditemukan atau API mengembalikan data kosong
         hasil = "TIDAK VALID"
-        nama_bank = "-"
+        # Berikan info debug singkat jika ada score/is_valid dari API
+        if "score" in result:
+            nama_bank = f"- (API: Valid={result.get('is_valid')}, Score={result.get('score')})"
+        else:
+            nama_bank = "-"
 
     return {
         "type": "result",
