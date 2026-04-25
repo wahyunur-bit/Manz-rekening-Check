@@ -221,7 +221,8 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
                 return {
                     "nama_bank": account_name,
                     "is_valid": inner.get("is_valid", False),
-                    "score": inner.get("score", 0)
+                    "score": inner.get("score", 0),
+                    "raw_data": data # Simpan respon mentah untuk debug
                 }
             
         except Exception as e:
@@ -256,11 +257,10 @@ def proses_satu(args):
     else:
         # Rekening tidak ditemukan atau API mengembalikan data kosong
         hasil = "TIDAK VALID"
-        # Berikan info debug singkat jika ada score/is_valid dari API
-        if "score" in result:
-            nama_bank = f"- (API: Valid={result.get('is_valid')}, Score={result.get('score')})"
-        else:
-            nama_bank = "-"
+        # EXTREME DEBUG: Tampilkan seluruh JSON respon agar kita tahu alasan pastinya
+        import json
+        raw_debug = json.dumps(result.get("raw_data", result))
+        nama_bank = f"DEBUG_RESP: {raw_debug}"
 
     return {
         "type": "result",
