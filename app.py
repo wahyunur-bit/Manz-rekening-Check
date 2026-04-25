@@ -308,6 +308,8 @@ def proses_satu(args):
 
         if is_match:
             hasil = "MATCH"
+            # Tampilkan nama FULL dari input Excel (tanpa sensor/masking dari API)
+            nama_bank = nama.upper()
         else:
             hasil = "TIDAK SAMA"
 
@@ -347,9 +349,15 @@ def generate_stream(records: list, code: str):
                             "nama_bank": str(e), "hasil": "ERROR"
                         }
 
-                    # Potong kuota 1 per hasil
-                    sisa = quota_decr(code)
-                    data["sisa_kuota"] = sisa
+                    # Kuota hanya dipotong untuk MATCH, TIDAK SAMA, TIDAK VALID
+                    # ERROR (timeout/jaringan) TIDAK memotong kuota
+                    hasil = data.get("hasil", "")
+                    if hasil != "ERROR":
+                        sisa = quota_decr(code)
+                        data["sisa_kuota"] = sisa
+                    else:
+                        # Untuk ERROR, tampilkan kuota saat ini tanpa potong
+                        data["sisa_kuota"] = quota_get(code)
                     processed += 1
 
                     yield f"data: {json.dumps(data)}\n\n"
@@ -474,7 +482,7 @@ def supported_banks():
                     kode = b.get("bank_code", "")
                     # Buat ketikan acuan: hapus prefix bank_ dan uppercase
                     acuan = kode.replace("bank_", "", 1).upper() if kode.startswith("bank_") else kode.upper()
-                    rows.append({"No": i, "Nama Bank": nama.title(), "Kode API": kode, "Ketikan di Excel": acuan})
+                    rows.append({"No": i, "Nama Bank": nama.title(), "Kode API": kode, "NAMA BANK (GUNAKAN INI)": acuan})
                 df = pd.DataFrame(rows)
                 buf = io.BytesIO()
                 df.to_excel(buf, index=False)
