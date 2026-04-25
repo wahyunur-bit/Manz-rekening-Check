@@ -173,12 +173,14 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            res = requests.get(BASE_URL, params=params, headers=headers, timeout=12)
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=5)
             
-            # Jika error server atau rate limit, tunggu sebentar lalu coba lagi format yang sama (atau lanjut loop)
-            if res.status_code in [429, 500, 502, 503, 504]:
-                print(f"[API RETRY] HTTP {res.status_code} on {current_bank_code}. Waiting...")
-                time.sleep(3)
+            # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
+            if res.status_code == 429:
+                print(f"[RATE LIMIT] Waiting 1s...")
+                time.sleep(1)
+                continue
+            elif res.status_code in [500, 502, 503, 504]:
                 continue
 
             if res.status_code == 401 or res.status_code == 402:
@@ -204,7 +206,6 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
             
         except Exception as e:
             print(f"[API ERROR] {e}")
-            time.sleep(2)
 
     print(f"[DONE] Semua format gagal untuk: {rekening}")
     return None
@@ -256,8 +257,9 @@ def generate_stream(records, code, start_quota):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Gunakan max_workers=1 (Sequential) untuk stabilitas 100% dan hasil paling akurat tanpa cela
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        # Konfigurasi MENTOK OPTIMAL: 25 workers
+        # Sangat cepat untuk batch besar, tetap aman dengan Redis DECR
+        with concurrent.futures.ThreadPoolExecutor(max_workers=25) as executor:
             futures = {
                 executor.submit(proses_satu, (i, row)): i
                 for i, row in enumerate(records)
