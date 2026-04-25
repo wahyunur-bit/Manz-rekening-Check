@@ -12,11 +12,10 @@ import time
 app = Flask(__name__)
 
 # ─── ENV ───────────────────────────────────────────────
-API_KEY   = os.getenv("APICOID_API_KEY", "")
+API_KEY   = os.getenv("APICOID_API_KEY", "zcrnNzDDvBzehZluxLQFQJmG2LHgdK75Ayhl4FtCtenKPw04cH")
 ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
 # ─── ENDPOINT API ──────────────────────────────────────
-# Endpoint resmi sesuai dokumentasi https://docs.api.co.id
 BASE_URL_OFFICIAL = "https://use.api.co.id/validation/bank"
 
 # ─── LICENSE / QUOTA SYSTEM ────────────────────────────
@@ -155,7 +154,6 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
     """
     Sesuai Dokumentasi Resmi api.co.id:
     GET https://use.api.co.id/validation/bank
-    Params: bank_code, account_number, account_name
     Header: x-api-co-id
     """
     if not API_KEY:
@@ -166,94 +164,62 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
     rekening = str(rekening).strip()
     nama_input = str(nama_input).strip()
 
-    # Normalisasi bank_code: user ketik "BCA" -> "bca" -> coba "bank_bca" dan "bca"
+    # Normalisasi: user ketik "BCA" -> "bank_bca" (format resmi API)
     bank_clean = re.sub(r'[^a-z0-9_]', '', bank_raw)
-    
-    # Buat daftar format bank_code yang akan dicoba (urut prioritas)
-    codes_to_try = []
-    if bank_clean.startswith('bank_'):
-        codes_to_try.append(bank_clean)                         # bank_bca
-        codes_to_try.append(bank_clean.replace('bank_', '', 1)) # bca
+    if not bank_clean.startswith('bank_'):
+        bank_code = f"bank_{bank_clean}"
     else:
-        codes_to_try.append(f"bank_{bank_clean}")               # bank_bca (format resmi)
-        codes_to_try.append(bank_clean)                         # bca
-    # Tambah kode numerik jika ada
-    if bank_clean in NUMERIC_BANKS:
-        codes_to_try.append(NUMERIC_BANKS[bank_clean])
-    elif bank_clean.replace('bank_', '') in NUMERIC_BANKS:
-        codes_to_try.append(NUMERIC_BANKS[bank_clean.replace('bank_', '')])
-    # Hapus duplikat
-    codes_to_try = list(dict.fromkeys(codes_to_try))
+        bank_code = bank_clean
 
     headers = {"x-api-co-id": API_KEY, "Accept": "application/json"}
-    last_err = "Rekening tidak ditemukan"
+    params = {
+        "bank_code": bank_code,
+        "account_number": rekening,
+        "account_name": nama_input
+    }
 
-    for bank_code in codes_to_try:
-        params = {
-            "bank_code": bank_code,
-            "account_number": rekening,
-            "account_name": nama_input
-        }
-
-        # Retry hingga 3x (mengatasi rate-limit dan timeout sporadis)
-        for attempt in range(3):
-            try:
-                print(f"[CEK] bank={bank_code} | rek={rekening} | attempt={attempt+1}")
-                res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=30)
+    # Coba 2x (1 normal + 1 retry)
+    for attempt in range(2):
+        try:
+            print(f"[CEK] {bank_code} | {rekening} | try={attempt+1}")
+            res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=20)
+            
+            if res.status_code == 200:
+                data = res.json()
                 
-                if res.status_code == 200:
-                    data = res.json()
-                    print(f"[RESP] {data}")
-                    
-                    if data.get("is_success"):
-                        inner = data.get("data", {})
-                        if inner:
-                            res_name = inner.get("name") or inner.get("account_name")
-                            is_valid = inner.get("is_valid", False)
-                            score = inner.get("score", 0)
+                if data.get("is_success"):
+                    inner = data.get("data", {})
+                    if inner:
+                        res_name = inner.get("name") or inner.get("account_name")
+                        score = inner.get("score", 0)
 
-                            if res_name:
-                                return {"account_name": str(res_name).strip(), "score": score}
-                            
-                            if not is_valid:
-                                last_err = inner.get("message") or "Bank account was not found"
-                                # Mungkin false negative dari rate limit, retry
-                                if attempt < 2:
-                                    time.sleep(2)
-                                    continue
-                                break  # Sudah 3x tetap not found, coba kode berikutnya
-                    else:
-                        msg = data.get("message", "Unknown error")
-                        print(f"[FAIL] {msg}")
-                        last_err = msg
-                        if "api key" in msg.lower() or "unauthorized" in msg.lower():
-                            return {"error": msg}
-                        break
-                
-                elif res.status_code == 401:
-                    return {"error": "API Key tidak valid atau expired"}
-                elif res.status_code == 403:
-                    return {"error": "Akses ditolak (saldo habis?)"}
+                        if res_name:
+                            return {"account_name": str(res_name).strip(), "score": score}
+                        
+                        if not inner.get("is_valid", False):
+                            return {"error": inner.get("message") or "Bank account was not found"}
                 else:
-                    last_err = f"HTTP {res.status_code}"
-                    break
-                    
-            except requests.exceptions.Timeout:
-                print(f"[TIMEOUT] attempt {attempt+1}/3")
-                last_err = "Timeout - server lambat"
-                if attempt < 2:
-                    time.sleep(3)
+                    msg = data.get("message", "Unknown error")
+                    if "api key" in msg.lower():
+                        return {"error": msg}
+                    return {"error": msg}
+            
+            elif res.status_code == 401:
+                return {"error": "API Key tidak valid"}
+            elif res.status_code == 403:
+                return {"error": "Saldo habis"}
+            else:
+                return {"error": f"HTTP {res.status_code}"}
+                
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt == 0:
+                time.sleep(2)
                 continue
-            except requests.exceptions.ConnectionError:
-                last_err = "Koneksi gagal"
-                if attempt < 2:
-                    time.sleep(3)
-                continue
-            except Exception as e:
-                last_err = str(e)
-                break
+            return {"error": "Timeout - server lambat"}
+        except Exception as e:
+            return {"error": str(e)}
 
-    return {"error": last_err}
+    return {"error": "Gagal menghubungi server"}
 
 
 # ─── PROSES 1 BARIS ────────────────────────────────────
@@ -335,33 +301,33 @@ def generate_stream(records: list, code: str):
     processed = 0
     try:
         with requests.Session() as session:
-            # SEQUENTIAL: Proses satu-per-satu agar API tidak rate-limit
-            for i, row in enumerate(records):
-                try:
-                    data = proses_satu((i, row, session))
-                except Exception as e:
-                    data = {
-                        "type": "result",
-                        "index": i + 1,
-                        "nama": "-", "rekening": "-", "bank": "-",
-                        "nama_bank": str(e), "hasil": "ERROR"
-                    }
+            # 2 workers paralel: cepat tapi aman dari rate-limit
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as exe:
+                futures = {
+                    exe.submit(proses_satu, (i, row, session)): i
+                    for i, row in enumerate(records)
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        data = future.result()
+                    except Exception as e:
+                        data = {
+                            "type": "result",
+                            "index": futures[future] + 1,
+                            "nama": "-", "rekening": "-", "bank": "-",
+                            "nama_bank": str(e), "hasil": "ERROR"
+                        }
 
-                # Kuota hanya dipotong untuk MATCH, TIDAK SAMA, TIDAK VALID
-                # ERROR (timeout/jaringan) TIDAK memotong kuota
-                hasil = data.get("hasil", "")
-                if hasil != "ERROR":
-                    sisa = quota_decr(code)
-                    data["sisa_kuota"] = sisa
-                else:
-                    data["sisa_kuota"] = quota_get(code)
-                processed += 1
+                    # Kuota: hanya potong untuk MATCH/BEDA/TIDAK VALID, bukan ERROR
+                    hasil = data.get("hasil", "")
+                    if hasil != "ERROR":
+                        sisa = quota_decr(code)
+                        data["sisa_kuota"] = sisa
+                    else:
+                        data["sisa_kuota"] = quota_get(code)
+                    processed += 1
 
-                yield f"data: {json.dumps(data)}\n\n"
-
-                # Delay antar request agar API tidak rate-limit
-                if i < len(records) - 1:
-                    time.sleep(1)
+                    yield f"data: {json.dumps(data)}\n\n"
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
