@@ -17,6 +17,8 @@ ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
 # ─── ENDPOINT API ──────────────────────────────────────
 BASE_URL_OFFICIAL = "https://use.api.co.id/validation/bank"
+BASE_URL_GET      = "https://use.api.co.id/validation/bank"   # GET  – resmi + score
+BASE_URL_POST     = "https://api.api.co.id/v1/bank/account"   # POST – nama FULL (lama)
 
 # ─── LICENSE / QUOTA SYSTEM ────────────────────────────
 # Simpan di Redis jika ada, fallback ke file JSON lokal
