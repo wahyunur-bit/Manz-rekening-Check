@@ -152,8 +152,7 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
     Kondisi sukses: API mengembalikan is_success=True dan data!=None.
     """
     if not API_KEY:
-        print("[ERROR] API_KEY tidak terkonfigurasi (None)")
-        return None
+        return {"is_error": True, "message": "API Key (APICOID_API_KEY) belum disetting di Railway Environment"}
 
     # Gunakan requests global jika session tidak diberikan (fallback)
     caller = session if session else requests
@@ -188,8 +187,9 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
                 continue
 
             if res.status_code == 401 or res.status_code == 402:
-                print(f"[AUTH ERROR] API Key bermasalah atau Saldo api.co.id Habis (HTTP {res.status_code})")
-                return None
+                msg = "API Key Salah / Saldo api.co.id Habis"
+                print(f"[AUTH ERROR] {msg} (HTTP {res.status_code})")
+                return {"is_error": True, "message": msg}
 
             data = res.json()
             inner = data.get("data")
@@ -222,8 +222,9 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
             except:
                 pass
 
+    last_msg = "Semua format (bank_xxx & xxx) gagal atau ditolak API"
     print(f"[DONE] Semua format gagal untuk: {rekening}")
-    return None
+    return {"is_error": True, "message": last_msg}
 
 
 def proses_satu(args):
@@ -235,18 +236,16 @@ def proses_satu(args):
 
     result = cek_rekening(rekening, bank, nama, session=session)
 
-    if result is None:
-        # API call gagal total (timeout, connection error, dsb.)
-        hasil = "TIDAK VALID"
-        nama_bank = "-"
-    elif result["is_valid"]:
+    if result.get("is_error"):
+        # Jika ada error sistem (API key, saldo, dsb)
+        hasil = "ERROR"
+        nama_bank = f"[!] {result.get('message', 'API Error')}"
+    elif result.get("is_valid"):
         # API bilang valid (score >= 7.0) — nama cocok
-        # Karena user tidak ingin ada sensor (Budi***), kita pakai langsung nama asli dari input Excel
         hasil = "MATCH"
         nama_bank = nama.upper()
-    elif result["nama_bank"]:
+    elif result.get("nama_bank"):
         # API berhasil tapi nama tidak cocok (score < 7.0)
-        # Rekening ditemukan, tapi nama beda
         hasil = "TIDAK SAMA"
         nama_bank = result["nama_bank"]
     else:
