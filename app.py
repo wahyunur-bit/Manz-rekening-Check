@@ -175,7 +175,8 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
 
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            res = caller.get(BASE_URL, params=params, headers=headers, timeout=(5, 10))
+            # Timeout ditingkatkan: 10s connect, 30s read untuk stabilitas
+            res = caller.get(BASE_URL, params=params, headers=headers, timeout=(10, 30))
             
             # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
             if res.status_code == 429:
@@ -265,7 +266,8 @@ def generate_stream(records, code, start_quota):
         # Konfigurasi PRO: 20 workers (Lebih stabil untuk market launch)
         # Menggunakan requests.Session untuk performa koneksi yang jauh lebih cepat
         with requests.Session() as session:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            # Mengurangi workers ke 10 agar API tidak timeout/drop koneksi
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {
                     executor.submit(proses_satu, (i, row, session)): i
                     for i, row in enumerate(records)
