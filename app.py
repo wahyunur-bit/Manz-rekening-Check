@@ -11,7 +11,7 @@ import time
 
 app = Flask(__name__)
 
-API_KEY = os.getenv("APICOID_API_KEY")
+API_KEY = os.getenv("APICOID_API_KEY", "SpcdCB8aPepI61MKvGeHb9LL6McAcb2LucCTb10TJ9nzs5IAFN")
 BASE_URL = "https://use.api.co.id/validation/bank"
 
 WHITESPACE = re.compile(r'\s+')
