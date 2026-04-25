@@ -194,35 +194,27 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
             data = res.json()
             inner = data.get("data")
             
-            # DEBUG: Print full response if it fails or for tracking
             if not data.get("is_success"):
-                print(f"[API FAIL] {rekening} | {current_bank_code} | Msg: {data.get('message')} | Resp: {data}")
+                msg = data.get("message", "Validation Failed")
+                print(f"[API FAIL] {rekening} | {current_bank_code} | Msg: {msg}")
+                # Jangan langsung return, coba format berikutnya (bank_xxx vs xxx)
+                last_msg = msg
+                continue
             
-            # LOGIKA SUKSES: Jika API merespon sukses dan ada data objeknya
+            # LOGIKA SUKSES
             if data.get("is_success") and inner:
-                # API api.co.id menggunakan field 'account_name' untuk nama pemilik
                 account_name = inner.get("account_name") or inner.get("name")
-                print(f"[API OK] Found: {account_name} | Score: {inner.get('score')}")
+                print(f"[API OK] Found: {account_name}")
                 return {
                     "nama_bank": account_name,
                     "is_valid": inner.get("is_valid", False),
                     "score": inner.get("score", 0)
                 }
             
-            # Jika is_success False, tampilkan alasannya (misal: "Bank code not found")
-            msg = data.get("message", "Fail")
-            print(f"[API FAIL] {current_bank_code}: {msg}")
-            
         except Exception as e:
             print(f"[API ERROR] {rekening} | {e}")
-            try:
-                # Jika ada response tapi error saat parse JSON, print text-nya
-                if 'res' in locals():
-                    print(f"[API RAW ERROR] {res.text}")
-            except:
-                pass
+            last_msg = f"Error: {str(e)}"
 
-    last_msg = "Semua format (bank_xxx & xxx) gagal atau ditolak API"
     print(f"[DONE] Semua format gagal untuk: {rekening}")
     return {"is_error": True, "message": last_msg}
 
