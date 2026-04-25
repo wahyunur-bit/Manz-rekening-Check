@@ -152,74 +152,94 @@ NUMERIC_BANKS = {
 
 def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -> dict:
     """
-    Sesuai Dokumentasi Resmi api.co.id:
-    GET https://use.api.co.id/validation/bank
-    Header: x-api-co-id
+    Triple-endpoint strategy (urutan prioritas):
+    1. POST api.api.co.id/v1/bank/account  → nama FULL tanpa sensor (script lama)
+    2. GET  use.api.co.id/validation/bank  → bank_bca format + score
+    3. GET  use.api.co.id/validation/bank  → bca format (short) + score
+    Return: {"account_name", "score", "is_valid"} atau {"error"}
     """
     if not API_KEY:
         return {"error": "API KEY KOSONG"}
 
-    caller = session or requests
-    bank_raw = str(bank).strip().lower()
-    rekening = str(rekening).strip()
+    caller     = session or requests
+    bank_raw   = str(bank).strip().lower()
+    rekening   = str(rekening).strip()
     nama_input = str(nama_input).strip()
 
-    # Normalisasi: user ketik "BCA" -> "bank_bca" (format resmi API)
     bank_clean = re.sub(r'[^a-z0-9_]', '', bank_raw)
-    if not bank_clean.startswith('bank_'):
-        bank_code = f"bank_{bank_clean}"
+    if bank_clean.startswith('bank_'):
+        short = bank_clean[5:]
+        full  = bank_clean
     else:
-        bank_code = bank_clean
+        short = bank_clean
+        full  = f"bank_{bank_clean}"
 
-    headers = {"x-api-co-id": API_KEY, "Accept": "application/json"}
-    params = {
-        "bank_code": bank_code,
-        "account_number": rekening,
-        "account_name": nama_input
-    }
+    headers_base = {"x-api-co-id": API_KEY, "Accept": "application/json"}
 
-    # Coba 2x (1 normal + 1 retry jika timeout)
-    for attempt in range(2):
+    # ── Strategi 1: POST (endpoint lama, nama FULL) ──────
+    def try_post() -> dict | None:
         try:
-            print(f"[CEK] {bank_code} | {rekening} | try={attempt+1}")
-            res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=45)
-            
+            payload = {"bank": short, "account_number": rekening}
+            print(f"[POST] {BASE_URL_POST} | bank={short} | rek={rekening}")
+            res = caller.post(BASE_URL_POST, json=payload,
+                              headers={**headers_base, "Content-Type": "application/json"},
+                              timeout=15)
+            print(f"[POST-RESP] {res.status_code} | {res.text[:300]}")
             if res.status_code == 200:
                 data = res.json()
-                
                 if data.get("is_success"):
                     inner = data.get("data", {})
-                    if inner:
-                        res_name = inner.get("name") or inner.get("account_name")
-                        score = inner.get("score", 0)
+                    nama = inner.get("name") or inner.get("account_name")
+                    if nama:
+                        return {"account_name": str(nama).strip(), "score": 10.0, "is_valid": True}
+            return None
+        except Exception:
+            return None
 
-                        if res_name:
-                            return {"account_name": str(res_name).strip(), "score": score}
-                        
-                        if not inner.get("is_valid", False):
-                            return {"error": inner.get("message") or "Bank account was not found"}
+    # ── Strategi 2 & 3: GET (endpoint resmi, score-based) ─
+    def try_get(bank_code: str) -> dict | None:
+        try:
+            params = {"bank_code": bank_code, "account_number": rekening, "account_name": nama_input}
+            print(f"[GET] {BASE_URL_GET} | bank={bank_code} | rek={rekening}")
+            res = caller.get(BASE_URL_GET, params=params, headers=headers_base, timeout=20)
+            print(f"[GET-RESP] {res.status_code} | {res.text[:300]}")
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("is_success"):
+                    inner    = data.get("data", {})
+                    nama     = inner.get("name") or inner.get("account_name")
+                    is_valid = inner.get("is_valid", False)
+                    score    = float(inner.get("score") or 0)
+                    if nama or is_valid:
+                        return {"account_name": str(nama).strip() if nama else "",
+                                "is_valid": is_valid, "score": score}
+                    return {"error": inner.get("message") or "Bank account was not found"}
                 else:
-                    msg = data.get("message", "Unknown error")
-                    if "api key" in msg.lower():
+                    msg = data.get("message", "")
+                    if "api key" in msg.lower() or "unauthorized" in msg.lower():
                         return {"error": msg}
-                    return {"error": msg}
-            
-            elif res.status_code == 401:
-                return {"error": "API Key tidak valid"}
-            elif res.status_code == 403:
-                return {"error": "Saldo habis"}
-            else:
-                return {"error": f"HTTP {res.status_code}"}
-                
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-            if attempt == 0:
-                time.sleep(2)
-                continue
-            return {"error": "Timeout - server lambat"}
-        except Exception as e:
-            return {"error": str(e)}
+                    return None
+        except Exception:
+            return None
 
-    return {"error": "Gagal menghubungi server"}
+    # ── Eksekusi urutan prioritas ─────────────────────────
+    result = try_post()
+    if result and "error" not in result:
+        return result
+
+    result = try_get(full)
+    if result is not None:
+        if "error" in result and "not found" in result["error"].lower():
+            return result
+        if "error" not in result:
+            return result
+
+    if short != full:
+        result = try_get(short)
+        if result is not None:
+            return result
+
+    return {"error": "Timeout - server lambat"}
 
 
 # ─── PROSES 1 BARIS ────────────────────────────────────
@@ -242,44 +262,36 @@ def proses_satu(args):
 
     if "error" in result:
         err_msg = result["error"]
-        system_errors = ["api key", "saldo", "aktif", "http 4", "timeout", "limit", "auth"]
-        
-        if any(x in err_msg.lower() for x in system_errors):
+        # Tentukan apakah ini error jaringan/sistem atau benar tidak valid
+        network_errors = ["timeout", "koneksi", "server lambat", "gagal menghubungi"]
+        auth_errors    = ["api key", "saldo", "unauthorized", "http 4"]
+
+        if any(x in err_msg.lower() for x in auth_errors):
+            hasil     = "ERROR"
+            nama_bank = f"[!] {err_msg}"
+        elif any(x in err_msg.lower() for x in network_errors):
             hasil     = "ERROR"
             nama_bank = f"[!] {err_msg}"
         else:
-            # Tampilkan pesan error asli dari API di kolom nama agar user tahu masalahnya
+            # "Bank account was not found" → memang tidak valid
             hasil     = "TIDAK VALID"
             nama_bank = f"({err_msg})"
     else:
-        nama_bank = result["account_name"]
-        score     = result.get("score")
-        
-        c_nama      = clean_str(nama)
-        c_nama_bank = clean_str(nama_bank)
+        nama_bank_api = result.get("account_name", "")
+        is_valid      = result.get("is_valid", False)
+        score         = result.get("score", 0)
 
-        # Logika Fuzzy Match untuk Masked Names (contoh: 'MUH**** FIO**')
-        is_match = False
-        if c_nama == c_nama_bank:
-            is_match = True
-        elif '*' in nama_bank:
-            # Jika ada masking, cek apakah 3 huruf pertama sama
-            prefix = c_nama_bank.split('*')[0]
-            if prefix and c_nama.startswith(prefix):
-                is_match = True
-        
-        # Gunakan score jika ada (score >= 7 biasanya dianggap match)
-        if score is not None:
-            try:
-                if float(score) >= 7.0: is_match = True
-            except: pass
-
-        if is_match:
-            hasil = "MATCH"
-            # Tampilkan nama FULL dari input Excel (tanpa sensor/masking dari API)
-            nama_bank = nama.upper()
+        # Gunakan score >= 7 OR is_valid=true sebagai patokan MATCH (dari script lama)
+        if is_valid or float(score) >= 7.0:
+            hasil     = "MATCH"
+            nama_bank = nama.upper()  # Tampil nama full dari Excel (bukan masked API)
+        elif nama_bank_api:
+            # Rekening ditemukan tapi nama beda
+            hasil     = "TIDAK SAMA"
+            nama_bank = nama_bank_api  # Nama masked dari API
         else:
-            hasil = "TIDAK SAMA"
+            hasil     = "TIDAK VALID"
+            nama_bank = "-"
 
     return {
         "type":      "result",
@@ -301,8 +313,8 @@ def generate_stream(records: list, code: str):
     processed = 0
     try:
         with requests.Session() as session:
-            # 2 workers paralel: cepat tapi aman dari rate-limit
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as exe:
+            # 4 workers: lebih cepat dari 2, aman dari rate-limit vs 10 lama
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as exe:
                 futures = {
                     exe.submit(proses_satu, (i, row, session)): i
                     for i, row in enumerate(records)
@@ -318,7 +330,7 @@ def generate_stream(records: list, code: str):
                             "nama_bank": str(e), "hasil": "ERROR"
                         }
 
-                    # Kuota: hanya potong untuk MATCH/BEDA/TIDAK VALID, bukan ERROR
+                    # Kuota: hanya potong MATCH/BEDA/TIDAK VALID — ERROR tidak dipotong
                     hasil = data.get("hasil", "")
                     if hasil != "ERROR":
                         sisa = quota_decr(code)
@@ -333,6 +345,7 @@ def generate_stream(records: list, code: str):
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
     yield f"data: {json.dumps({'type':'done','total':total,'processed':processed})}\n\n"
+
 
 
 # ─── ROUTES ────────────────────────────────────────────
@@ -527,93 +540,164 @@ def admin_panel():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Admin Panel – License Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+:root {
+  --bg: #02040a; --surface: #0d1117; --surface2: #111827;
+  --border: rgba(0,229,255,0.12); --border-h: rgba(0,229,255,0.35);
+  --accent: #00e5ff; --green: #00ffa3; --red: #ff4d6d; --yellow: #fbbf24;
+  --text: #e2e8f0; --muted: #64748b; --mono: 'JetBrains Mono',monospace;
+}
 * { box-sizing:border-box; margin:0; padding:0; }
-body { background:#0b0e1a; color:#e2e8f0; font-family:system-ui,sans-serif; padding:30px; }
-h1 { color:#00e5ff; font-size:22px; margin-bottom:6px; }
-.sub { color:#64748b; font-size:12px; margin-bottom:30px; }
-.card { background:#0d1117; border:1px solid #1e2d45; border-radius:12px; padding:24px; margin-bottom:20px; }
-h3 { color:#00e5ff; font-size:13px; letter-spacing:1px; text-transform:uppercase; margin-bottom:16px; }
-input, select { background:#111827; border:1px solid #1e2d45; color:#fff; padding:10px 14px;
-  border-radius:8px; font-size:14px; width:100%; margin-bottom:10px; }
-button { padding:10px 20px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
-.btn-cyan { background:#00e5ff; color:#000; }
-.btn-red  { background:#ff4d6d; color:#fff; }
-.btn-gray { background:#1e2d45; color:#e2e8f0; }
-.row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
-.row input { flex:1; margin-bottom:0; }
+body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif;
+  min-height:100vh; padding:30px 20px; }
+.wrap { max-width:860px; margin:0 auto; }
+h1 { font-size:24px; font-weight:700; background:linear-gradient(135deg,#fff,var(--accent));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:4px; }
+.sub { color:var(--muted); font-size:12px; letter-spacing:2px; margin-bottom:30px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:16px;
+  padding:24px; margin-bottom:20px; }
+.card-title { color:var(--accent); font-size:11px; letter-spacing:2px;
+  text-transform:uppercase; font-weight:700; margin-bottom:16px; }
+input { background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  padding:10px 14px; border-radius:8px; font-size:14px; font-family:var(--mono);
+  width:100%; transition:.2s; outline:none; }
+input:focus { border-color:var(--accent); }
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.row input { flex:1; }
+.btn { padding:10px 20px; border:none; border-radius:8px; font-size:13px;
+  font-weight:600; cursor:pointer; transition:.2s; white-space:nowrap; }
+.btn-cyan { background:var(--accent); color:#000; }
+.btn-cyan:hover { opacity:.85; }
+.btn-green { background:rgba(0,255,163,.1); color:var(--green);
+  border:1px solid rgba(0,255,163,.25); }
+.btn-green:hover { background:rgba(0,255,163,.2); }
+.btn-red { background:rgba(255,77,109,.1); color:var(--red);
+  border:1px solid rgba(255,77,109,.25); padding:6px 14px; font-size:11px; }
+.btn-red:hover { background:rgba(255,77,109,.2); }
+.btn-yellow { background:rgba(251,191,36,.1); color:var(--yellow);
+  border:1px solid rgba(251,191,36,.25); padding:6px 14px; font-size:11px; }
+.btn-yellow:hover { background:rgba(251,191,36,.2); }
 table { width:100%; border-collapse:collapse; font-size:13px; }
-th { background:#111827; color:#00e5ff; padding:10px 14px; text-align:left; font-size:11px; letter-spacing:1px; }
-td { padding:10px 14px; border-bottom:1px solid #1e2d45; font-family:monospace; }
-.badge { padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; }
-.bgreen { background:rgba(0,255,163,.15); color:#00ffa3; }
-.bred   { background:rgba(255,77,109,.15); color:#ff4d6d; }
-#msg { margin-top:10px; font-size:13px; min-height:20px; }
-#secret { margin-bottom:20px; }
+th { background:var(--surface2); color:var(--accent); padding:10px 14px;
+  text-align:left; font-size:10px; letter-spacing:1.5px; font-weight:600; }
+td { padding:10px 14px; border-bottom:1px solid var(--border); font-family:var(--mono); }
+.badge { padding:3px 10px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:1px; }
+.bgreen { background:rgba(0,255,163,.12); color:var(--green); }
+.bred   { background:rgba(255,77,109,.12); color:var(--red); }
+#msg { margin-top:12px; font-size:13px; min-height:20px; font-family:var(--mono); }
+.edit-input { width:90px; padding:5px 8px; font-size:12px; }
+.tdact { display:flex; gap:6px; align-items:center; }
+.stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:0; }
+.stat-box { background:var(--surface2); border:1px solid var(--border);
+  border-radius:10px; padding:16px; text-align:center; }
+.stat-num { font-size:28px; font-weight:700; color:var(--accent); font-family:var(--mono); }
+.stat-lbl { font-size:11px; color:var(--muted); margin-top:4px; }
 </style>
 </head>
 <body>
-<h1>🔐 License Manager</h1>
-<div class="sub">Panel admin untuk kelola kode lisensi</div>
+<div class="wrap">
+  <h1>🔐 License Manager</h1>
+  <div class="sub">// ADMIN PANEL — REKENING VALIDATOR PRO</div>
 
-<div class="card">
-  <h3>Authentication</h3>
-  <div class="row">
-    <input type="password" id="secret" placeholder="Admin Secret / Password">
-    <button class="btn-cyan" onclick="loadList()">Login & Lihat Kode</button>
+  <!-- LOGIN -->
+  <div class="card">
+    <div class="card-title">Authentication</div>
+    <div class="row">
+      <input type="password" id="secret" placeholder="Masukkan Admin Secret Password"
+        onkeydown="if(event.key==='Enter') loadAll()">
+      <button class="btn btn-cyan" onclick="loadAll()">🔓 Login & Refresh</button>
+    </div>
+    <div id="msg"></div>
   </div>
-</div>
 
-<div class="card">
-  <h3>Tambah / Top-up Kode</h3>
-  <div class="row">
-    <input type="text" id="newCode" placeholder="Kode (contoh: MANZ-ABC1)" style="text-transform:uppercase">
-    <input type="number" id="newQuota" placeholder="Jumlah kuota" value="100" style="max-width:160px">
-    <button class="btn-cyan" onclick="addCode()">Tambah / Top-up</button>
+  <!-- STATS -->
+  <div class="card" id="statsCard" style="display:none">
+    <div class="card-title">Statistik</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">Total Kode</div></div>
+      <div class="stat-box"><div class="stat-num" id="stAktif">0</div><div class="stat-lbl">Kode Aktif</div></div>
+      <div class="stat-box"><div class="stat-num" id="stKuota">0</div><div class="stat-lbl">Total Kuota</div></div>
+    </div>
   </div>
-  <div id="msg"></div>
-</div>
 
-<div class="card">
-  <h3>Daftar Kode Aktif</h3>
-  <button class="btn-gray" onclick="loadList()" style="margin-bottom:16px; font-size:12px;">↻ Refresh</button>
-  <table>
-    <thead><tr><th>#</th><th>Kode</th><th>Kuota Sisa</th><th>Status</th><th>Aksi</th></tr></thead>
-    <tbody id="tbl"></tbody>
-  </table>
+  <!-- TAMBAH KODE -->
+  <div class="card">
+    <div class="card-title">➕ Tambah / Top-up Kode</div>
+    <div class="row">
+      <input type="text" id="newCode" placeholder="Kode Lisensi (contoh: MANZ-VIP01)"
+        style="text-transform:uppercase">
+      <input type="number" id="newQuota" placeholder="Kuota" value="100" style="max-width:130px">
+      <button class="btn btn-green" onclick="addCode()">Tambah / Top-up</button>
+    </div>
+  </div>
+
+  <!-- DAFTAR KODE -->
+  <div class="card">
+    <div class="card-title">📋 Daftar Kode Aktif</div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>KODE LISENSI</th><th>KUOTA SISA</th>
+        <th>STATUS</th><th>AKSI</th>
+      </tr></thead>
+      <tbody id="tbl"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">
+        Login untuk melihat daftar kode
+      </td></tr></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
-function secret() { return document.getElementById('secret').value; }
+const $ = id => document.getElementById(id);
+const secret = () => $('secret').value;
+
 function msg(t, ok) {
-  const el = document.getElementById('msg');
-  el.textContent = t;
-  el.style.color = ok ? '#00ffa3' : '#ff4d6d';
+  $('msg').textContent = t;
+  $('msg').style.color = ok ? 'var(--green)' : 'var(--red)';
 }
 
-async function loadList() {
+async function loadAll() {
   const res = await fetch('/admin/list', { headers: { 'X-Admin-Secret': secret() } });
   const data = await res.json();
-  if (!data.ok) return msg(data.msg || 'Unauthorized', false);
-  const tbody = document.getElementById('tbl');
+  if (!data.ok) { msg('❌ ' + (data.msg || 'Unauthorized'), false); return; }
+
+  // Stats
+  const aktif = data.codes.filter(c => c.quota > 0).length;
+  const totalKuota = data.codes.reduce((a,c) => a + c.quota, 0);
+  $('stTotal').textContent = data.total;
+  $('stAktif').textContent = aktif;
+  $('stKuota').textContent = totalKuota.toLocaleString();
+  $('statsCard').style.display = '';
+
+  // Table
+  const tbody = $('tbl');
   tbody.innerHTML = '';
+  if (data.codes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">Belum ada kode</td></tr>';
+    return;
+  }
   data.codes.forEach((c, i) => {
     const ok = c.quota > 0;
     tbody.innerHTML += `<tr>
-      <td>${i+1}</td>
+      <td style="color:var(--muted)">${i+1}</td>
       <td><b>${c.code}</b></td>
-      <td>${c.quota}</td>
+      <td>${c.quota.toLocaleString()}</td>
       <td><span class="badge ${ok?'bgreen':'bred'}">${ok?'AKTIF':'HABIS'}</span></td>
-      <td><button class="btn-red" style="padding:4px 12px;font-size:11px" onclick="delCode('${c.code}')">Hapus</button></td>
+      <td><div class="tdact">
+        <input class="edit-input" id="eq_${c.code}" type="number" value="${c.quota}" min="0">
+        <button class="btn btn-yellow" onclick="setKuota('${c.code}')">Set</button>
+        <button class="btn btn-red" onclick="delCode('${c.code}')">Hapus</button>
+      </div></td>
     </tr>`;
   });
-  msg(`${data.total} kode ditemukan`, true);
+  msg(`✓ ${data.total} kode berhasil dimuat`, true);
 }
 
 async function addCode() {
-  const code = document.getElementById('newCode').value.trim().toUpperCase();
-  const quota = parseInt(document.getElementById('newQuota').value);
-  if (!code || !quota) return msg('Isi kode dan kuota!', false);
+  const code = $('newCode').value.trim().toUpperCase();
+  const quota = parseInt($('newQuota').value);
+  if (!code) { msg('⚠ Isi kode terlebih dahulu!', false); return; }
+  if (!quota || quota < 1) { msg('⚠ Kuota minimal 1', false); return; }
   const res = await fetch('/admin/add', {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'X-Admin-Secret': secret() },
@@ -622,22 +706,36 @@ async function addCode() {
   const data = await res.json();
   if (data.ok) {
     msg(`✓ Kode ${data.code} | Sisa kuota: ${data.quota}`, true);
-    loadList();
+    $('newCode').value = '';
+    loadAll();
   } else {
-    msg(data.msg || 'Gagal', false);
+    msg('❌ ' + (data.msg || 'Gagal'), false);
   }
 }
 
+async function setKuota(code) {
+  const quota = parseInt(document.getElementById('eq_'+code).value);
+  if (isNaN(quota) || quota < 0) { msg('⚠ Kuota tidak valid', false); return; }
+  const res = await fetch('/admin/set', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', 'X-Admin-Secret': secret() },
+    body: JSON.stringify({ code, quota })
+  });
+  const data = await res.json();
+  msg(data.ok ? `✓ Kuota ${code} → ${quota}` : '❌ Gagal', data.ok);
+  if (data.ok) loadAll();
+}
+
 async function delCode(code) {
-  if (!confirm('Hapus kode ' + code + '?')) return;
+  if (!confirm(`Hapus kode "${code}"?\nAksi ini tidak bisa dibatalkan.`)) return;
   const res = await fetch('/admin/delete', {
     method: 'DELETE',
     headers: { 'Content-Type':'application/json', 'X-Admin-Secret': secret() },
     body: JSON.stringify({ code })
   });
   const data = await res.json();
-  msg(data.ok ? `✓ ${code} dihapus` : data.msg, data.ok);
-  if (data.ok) loadList();
+  msg(data.ok ? `✓ ${code} dihapus` : '❌ ' + data.msg, data.ok);
+  if (data.ok) loadAll();
 }
 </script>
 </body>
