@@ -32,7 +32,6 @@ body {
   overflow-x: hidden;
 }
 
-/* GRID BACKGROUND */
 body::before {
   content: '';
   position: fixed;
@@ -45,7 +44,6 @@ body::before {
   z-index: 0;
 }
 
-/* GLOW ORBS */
 .orb {
   position: fixed;
   border-radius: 50%;
@@ -72,7 +70,6 @@ body::before {
   z-index: 1;
 }
 
-/* HEADER */
 header {
   text-align: center;
   margin-bottom: 48px;
@@ -126,7 +123,6 @@ h1 {
   letter-spacing: 0.05em;
 }
 
-/* CARD */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -146,7 +142,6 @@ h1 {
   opacity: 0.4;
 }
 
-/* UPLOAD ZONE */
 .upload-zone {
   border: 1.5px dashed var(--border);
   border-radius: 12px;
@@ -202,7 +197,6 @@ h1 {
   display: inline-block;
 }
 
-/* ACTIONS */
 .actions {
   display: flex;
   gap: 10px;
@@ -265,7 +259,6 @@ button {
   box-shadow: 0 0 20px rgba(0,255,163,0.15);
 }
 
-/* PROGRESS */
 #progress-area {
   display: none;
   margin-top: 20px;
@@ -320,20 +313,6 @@ button {
   overflow: hidden;
 }
 
-.progress-bar::after {
-  content: '';
-  position: absolute;
-  top: 0; right: 0; bottom: 0;
-  width: 60px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
-  animation: shimmer 1.2s ease-in-out infinite;
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-100px); }
-  100% { transform: translateX(100px); }
-}
-
 .stats-row {
   display: flex;
   gap: 12px;
@@ -358,7 +337,6 @@ button {
   border-radius: 50%;
 }
 
-/* RESULTS TABLE */
 .table-header {
   display: flex;
   align-items: center;
@@ -475,7 +453,6 @@ td:nth-child(2) {
 .empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
 .empty-text { font-size: 13px; font-family: var(--font-mono); }
 
-/* DONE TOAST */
 .toast {
   position: fixed;
   bottom: 30px;
@@ -500,14 +477,12 @@ td:nth-child(2) {
   to { transform: translateY(0); opacity:1; }
 }
 
-/* SCROLLBAR */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
 .table-wrap { overflow-x: auto; }
 
-/* ACTIVATION GATE */
 #gate {
   display: flex;
   flex-direction: column;
@@ -584,11 +559,6 @@ td:nth-child(2) {
   box-shadow: 0 0 20px rgba(0,229,255,0.12);
 }
 
-.code-input::placeholder {
-  color: var(--muted);
-  letter-spacing: 0.05em;
-}
-
 .gate-btn {
   width: 100%;
   margin-top: 14px;
@@ -618,7 +588,6 @@ td:nth-child(2) {
 
 <div class="container">
 
-  <!-- ACTIVATION GATE -->
   <div id="gate">
     <header>
       <div class="logo-badge">Rekening Validator Pro</div>
@@ -635,7 +604,6 @@ td:nth-child(2) {
     </div>
   </div>
 
-  <!-- MAIN APP (hidden until code verified) -->
   <div id="mainApp">
 
   <header style="display:flex; justify-content:space-between; align-items:center;">
@@ -649,7 +617,6 @@ td:nth-child(2) {
     </div>
   </header>
 
-  <!-- UPLOAD CARD -->
   <div class="card">
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(this)">
@@ -667,7 +634,6 @@ td:nth-child(2) {
       <a href="/supported-banks" class="btn-ghost" style="text-decoration:none; display:inline-flex;">⬇ Daftar Bank Support</a>
     </div>
 
-    <!-- PROGRESS -->
     <div id="progress-area">
       <div class="progress-header">
         <div class="progress-label">
@@ -687,7 +653,6 @@ td:nth-child(2) {
     </div>
   </div>
 
-  <!-- TABLE CARD -->
   <div class="card">
     <div class="table-header">
       <div class="table-title">⚡ Hasil Validasi</div>
@@ -721,7 +686,7 @@ td:nth-child(2) {
     </div>
   </div>
 
-  </div><!-- end mainApp -->
+  </div>
 </div>
 
 <div class="toast" id="toast">✓ <span id="toastMsg">Selesai!</span></div>
@@ -731,7 +696,6 @@ let results = [];
 let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
 let currentCode = '';
 
-// === ACTIVATION CODE ===
 document.getElementById('codeInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') verifyCode();
 });
@@ -779,7 +743,6 @@ function verifyCode() {
     btn.textContent = '🔓 Aktifkan';
   });
 }
-// === END ACTIVATION CODE ===
 
 function onFileChange(input) {
   const f = input.files[0];
@@ -789,7 +752,6 @@ function onFileChange(input) {
   document.getElementById('btnProses').disabled = false;
 }
 
-// Drag & drop
 const zone = document.getElementById('uploadZone');
 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
 zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
@@ -807,7 +769,6 @@ function proses() {
   const file = document.getElementById('fileInput').files[0];
   if (!file) return;
 
-  // Reset
   results = []; done = 0; cMatch = 0; cDiff = 0; cInvalid = 0; total = 0;
   document.getElementById('tbody').innerHTML = '';
   document.getElementById('progressBar').style.width = '0%';
@@ -863,6 +824,7 @@ function handle(d) {
     document.getElementById('progressCount').textContent = `0 / ${total}`;
     
     let html = '';
+    if (total > 0) {
       for(let i = 1; i <= total; i++) {
         html += `<tr id="row-${i}">
           <td>${i}</td>
@@ -883,15 +845,14 @@ function handle(d) {
     else if (d.hasil === 'TIDAK SAMA') cDiff++;
     else cInvalid++;
 
-    // Update stats
     document.getElementById('cntMatch').textContent = cMatch + ' Match';
     document.getElementById('cntDiff').textContent = cDiff + ' Beda';
     document.getElementById('cntInvalid').textContent = cInvalid + ' Invalid';
     document.getElementById('progressCount').textContent = `${done} / ${total}`;
     document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
 
-    // Update specific row by ID instead of appending to prevent UI scrambling
     let cls = d.hasil === 'MATCH' ? 'badge-match' : d.hasil === 'TIDAK SAMA' ? 'badge-diff' : 'badge-invalid';
+    const tr = document.getElementById(`row-${d.index}`);
     if (tr) {
       tr.innerHTML = `
         <td>${d.index}</td>
@@ -902,7 +863,6 @@ function handle(d) {
         <td><span class="badge ${cls}">${d.hasil}</span></td>
       `;
     }
-    // Update sisa kuota real-time
     if (d.sisa_kuota !== undefined) {
       document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
     }
@@ -915,11 +875,9 @@ function handle(d) {
     document.getElementById('btnIcon').textContent = '▶';
     document.getElementById('progressBar').style.width = '100%';
     
-    // Update sisa kuota di UI
     if (d.sisa_kuota !== undefined) {
       document.getElementById('quotaDisplay').textContent = `Sisa Kuota: ${d.sisa_kuota} Rekening`;
     }
-    
     showToast(`✓ Selesai! ${cMatch} match · ${cDiff} beda · ${cInvalid} invalid`);
   }
 
@@ -948,7 +906,6 @@ function downloadTemplate() {
 
 function download(fmt) {
   if (!results.length) return alert('Belum ada data hasil!');
-  // Pastikan hasil didownload sesuai urutan awal
   const sortedResults = [...results].sort((a, b) => a[0] - b[0]);
   fetch('/download', {
     method: 'POST',
