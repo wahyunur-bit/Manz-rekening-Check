@@ -145,103 +145,117 @@ def clean_rekening(val) -> str:
     return s
 
 
+# ─── BANK MAPPING ──────────────────────────────────────
+# Beberapa API lama butuh kode numerik
+NUMERIC_BANKS = {
+    "bca": "014", "mandiri": "008", "bni": "009", "bri": "002",
+    "btpn": "213", "cimb": "022", "danamon": "011", "ocbc": "028",
+    "permata": "013", "panin": "019", "hana": "484", "seabank": "535",
+    "jago": "542", "allo": "561"
+}
+
 # ─── CORE API CALL ─────────────────────────────────────
 
 def cek_rekening(rekening: str, bank: str, session=None) -> dict:
     """
-    Versi 'Brute-Force' Agresif: Mencoba segala cara untuk mendapatkan nama rekening.
+    Versi 'ULTIMATE BRUTE-FORCE': Mencoba segala kombinasi (GET/POST, URL, Header, Payload).
     """
     if not API_KEY:
-        return {"error": "APICOID_API_KEY belum di-set"}
+        return {"error": "API KEY KOSONG"}
 
     caller = session or requests
-    bank_raw = str(bank).strip()
+    bank_raw = str(bank).strip().lower()
     rekening = str(rekening).strip()
     
-    # Variasi kode bank
-    b_variants = [
-        bank_raw.lower(),                               # bca
-        bank_raw.upper(),                               # BCA
-        re.sub(r'[^a-z0-9]', '', bank_raw.lower()),      # bca (clean)
-    ]
-    # Tambahkan prefix 'bank_' jika belum ada
+    # 1. Variasi Kode Bank (String & Numerik)
+    b_variants = [bank_raw, bank_raw.upper(), re.sub(r'[^a-z0-9]', '', bank_raw)]
+    if bank_raw in NUMERIC_BANKS:
+        b_variants.append(NUMERIC_BANKS[bank_raw])
+    
+    # Tambahkan prefix 'bank_'
     for v in list(b_variants):
-        if not v.startswith('bank_'):
+        if not v.startswith('bank_') and not v.isdigit():
             b_variants.append(f"bank_{v}")
-
-    # Hapus duplikat
+    
     b_variants = list(dict.fromkeys(b_variants))
-
     last_err = "Rekening tidak ditemukan"
 
     for url in ENDPOINTS:
         for b_code in b_variants:
-            for h_type in ["x-api-co-id", "Bearer"]:
-                headers = {"Content-Type": "application/json", "Accept": "application/json"}
-                if h_type == "x-api-co-id": headers["x-api-co-id"] = API_KEY
-                else: headers["Authorization"] = f"Bearer {API_KEY}"
+            # Variasi Header
+            auth_set = [
+                {"x-api-co-id": API_KEY},
+                {"Authorization": f"Bearer {API_KEY}"},
+                {"x-api-key": API_KEY}
+            ]
 
-                # Coba berbagai kombinasi payload
+            for headers in auth_set:
+                headers.update({"Content-Type": "application/json", "Accept": "application/json"})
+                
+                # Variasi Payload & Method
+                # A. Mencoba POST (Berbagai Field)
                 payloads = [
                     {"bank": b_code, "account_number": rekening},
                     {"bank_code": b_code, "account_number": rekening},
-                    {"bank": b_code, "number": rekening},
-                    {"bank_code": b_code, "account_no": rekening}
+                    {"bank": b_code, "number": rekening}
                 ]
 
-                for payload in payloads:
+                for p in payloads:
                     try:
-                        # Log singkat untuk debug di Railway
-                        print(f"[PROBE] {url} | {payload} | {h_type}")
-                        res = caller.post(url, json=payload, headers=headers, timeout=7)
-
+                        print(f"[POST] {url} | {p}")
+                        res = caller.post(url, json=p, headers=headers, timeout=6)
+                        
                         if res.status_code == 200:
                             data = res.json()
-                            
-                            # ── CARI NAMA (PERMISIF) ──
-                            # Cari di top-level
+                            # Cari Nama (Sangat Permisif)
                             name = None
-                            for key in ['name', 'account_name', 'account_holder_name', 'account_holder', 'customer_name', 'beneficiary_name']:
-                                if data.get(key):
-                                    name = data[key]
-                                    break
+                            # Cek Top Level & Nested
+                            search_in = [data]
+                            if isinstance(data.get('data'), dict): search_in.append(data['data'])
+                            if isinstance(data.get('result'), dict): search_in.append(data['result'])
                             
-                            # Cari di dalam 'data' atau 'result'
-                            if not name:
-                                for outer in ['data', 'result', 'payload']:
-                                    inner = data.get(outer)
-                                    if isinstance(inner, dict):
-                                        for key in ['name', 'account_name', 'account_holder_name', 'account_holder', 'customer_name']:
-                                            if inner.get(key):
-                                                name = inner[key]
-                                                break
-                                    if name: break
-
-                            # Cari Score
-                            score = data.get('score') or (data.get('data') or {}).get('score')
+                            for obj in search_in:
+                                for k in ['name', 'account_name', 'account_holder_name', 'account_holder', 'customer_name', 'beneficiary_name', 'account_holder_name']:
+                                    if obj.get(k):
+                                        name = obj[k]
+                                        break
+                                if name: break
 
                             if name:
-                                return {"account_name": str(name).strip(), "score": score}
+                                return {"account_name": str(name).strip(), "score": data.get('score')}
                             
-                            # Jika sukses tapi tidak ada nama, mungkin ini pesan error bertopeng sukses
+                            # Jika 200 tapi gagal, ambil pesan errornya
                             msg = data.get("message") or data.get("msg") or data.get("error")
-                            if msg: last_err = str(msg)
-
-                        elif res.status_code == 402:
-                            return {"error": "Saldo api.co.id habis"}
-                        elif res.status_code in (401, 403):
-                            last_err = f"Auth Error {res.status_code}"
+                            if msg: last_err = f"{msg}"
                         else:
-                            # Simpan error terakhir untuk dilaporkan jika semua gagal
                             try:
-                                last_err = res.json().get("message") or f"HTTP {res.status_code}"
+                                e_msg = res.json().get("message") or f"HTTP {res.status_code}"
+                                last_err = e_msg
                             except:
                                 last_err = f"HTTP {res.status_code}"
-
+                                
                     except Exception as e:
                         last_err = str(e)
-                        continue
-    
+
+                # B. Mencoba GET (Fallback)
+                try:
+                    params = {"bank": b_code, "account_number": rekening, "bank_code": b_code}
+                    print(f"[GET] {url} | {params}")
+                    res = caller.get(url, params=params, headers=headers, timeout=6)
+                    if res.status_code == 200:
+                        data = res.json()
+                        # (Parsing sama seperti di atas)
+                        name = None
+                        search_in = [data]
+                        if isinstance(data.get('data'), dict): search_in.append(data['data'])
+                        for obj in search_in:
+                            for k in ['name', 'account_name', 'account_holder_name']:
+                                if obj.get(k): name = obj[k]; break
+                            if name: break
+                        if name: return {"account_name": str(name).strip()}
+                except:
+                    pass
+
     return {"error": last_err}
 
 
@@ -271,8 +285,9 @@ def proses_satu(args):
             hasil     = "ERROR"
             nama_bank = f"[!] {err_msg}"
         else:
+            # Tampilkan pesan error asli dari API di kolom nama agar user tahu masalahnya
             hasil     = "TIDAK VALID"
-            nama_bank = "-"
+            nama_bank = f"({err_msg})"
     else:
         nama_bank = result["account_name"]
         score     = result.get("score")
