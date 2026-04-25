@@ -11,8 +11,20 @@ import time
 
 app = Flask(__name__)
 
-API_KEY = os.getenv("APICOID_API_KEY", "SpcdCB8aPepI61MKvGeHb9LL6McAcb2LucCTb10TJ9nzs5IAFN")
+API_KEY = os.getenv("APICOID_API_KEY")
 BASE_URL = "https://use.api.co.id/validation/bank"
+
+import redis
+REDIS_URL = os.getenv("REDIS_URL")
+r = None
+if REDIS_URL:
+    try:
+        # Menangani prefix redis:// jika diperlukan (Railway biasanya memberikan redis://)
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        r.ping()
+        print("[DB] Connected to Redis")
+    except Exception as e:
+        print(f"[DB ERROR] Redis failed to connect: {e}")
 
 WHITESPACE = re.compile(r'\s+')
 
@@ -22,18 +34,89 @@ codes_lock = threading.Lock()
 
 
 def load_codes():
+    """Fallback function for local file storage if Redis is not available."""
     try:
-        with open(CODES_FILE, 'r') as f:
-            return json.load(f)
+        if os.path.exists(CODES_FILE):
+            with open(CODES_FILE, 'r') as f:
+                return json.load(f)
     except Exception:
-        return {}
+        pass
+    return {}
 
 
 def save_codes(codes):
+    """Fallback function for local file storage."""
     with open(CODES_FILE, 'w') as f:
         json.dump(codes, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
+
+
+def get_quota(code):
+    """Ambil sisa kuota dari Redis atau local file."""
+    if r:
+        try:
+            val = r.get(f"code:{code}")
+            if val is not None:
+                return int(val)
+        except Exception as e:
+            print(f"[DB ERROR] get_quota: {e}")
+    
+    # Fallback to local
+    codes = load_codes()
+    quota = codes.get(code)
+    if isinstance(quota, bool):
+        quota = 0 if quota is True else 100
+    return quota
+
+
+def update_quota(code, new_q):
+    """Update kuota ke Redis atau local file."""
+    if r:
+        try:
+            r.set(f"code:{code}", new_q)
+            return
+        except Exception as e:
+            print(f"[DB ERROR] update_quota: {e}")
+            
+    with codes_lock:
+        codes = load_codes()
+        codes[code] = new_q
+        save_codes(codes)
+
+
+def deduct_quota(code):
+    """Potong kuota 1 secara atomic menggunakan Redis DECR."""
+    if r:
+        try:
+            # Gunakan DECR untuk keamanan concurrency
+            new_q = r.decr(f"code:{code}")
+            return new_q
+        except Exception as e:
+            print(f"[DB ERROR] deduct_quota: {e}")
+            
+    # Fallback manual lock
+    with codes_lock:
+        current = get_quota(code)
+        if current is None: return 0
+        new_q = max(0, current - 1)
+        update_quota(code, new_q)
+        return new_q
+
+
+def migrate_to_redis():
+    """Pindahkan data dari codes.json ke Redis jika Redis masih kosong."""
+    if not r: return
+    try:
+        # Hanya migrasi jika Redis kosong (size 0)
+        if r.dbsize() == 0 and os.path.exists(CODES_FILE):
+            print("[DB] Migrating codes.json data to Redis...")
+            data = load_codes()
+            for code, quota in data.items():
+                if isinstance(quota, bool):
+                    quota = 0 if quota is True else 100
+                r.set(f"code:{code}", quota)
+            print(f"[DB] Migration success: {len(data)} codes moved.")
+    except Exception as e:
+        print(f"[DB ERROR] Migration failed: {e}")
 
 
 # --- Helpers ---
@@ -64,17 +147,21 @@ def normalize_bank_code(bank_input):
 
 def cek_rekening(rekening, bank_code_raw, nama_pengirim):
     """
-    Cek rekening dengan Logika Invincible: 
-    Mencoba format 'bank_xxx' dan 'xxx' secara bergantian dengan total 4x percobaan.
-    Sangat tangguh menghadapi fluktuasi server api.co.id.
+    Cek rekening dengan Logika Robust: 
+    Mencoba format 'bank_xxx' dan 'xxx' secara bergantian.
+    Kondisi sukses: API mengembalikan is_success=True dan data!=None.
     """
+    if not API_KEY:
+        print("[ERROR] API_KEY tidak terkonfigurasi (None)")
+        return None
+
     bank_clean = normalize_bank_code(bank_code_raw)
-    # Daftar format yang akan dicoba secara bergantian
-    formats_to_try = [f"bank_{bank_clean}", bank_clean, f"bank_{bank_clean}", bank_clean]
+    # Daftar format yang akan dicoba (prefix dan non-prefix)
+    formats_to_try = [f"bank_{bank_clean}", bank_clean]
     
     headers = {
         "x-api-co-id": API_KEY,
-        "Content-Type": "application/json"
+        "Accept": "application/json"
     }
 
     for attempt, current_bank_code in enumerate(formats_to_try):
@@ -85,15 +172,15 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
         }
 
         try:
-            print(f"[API REQ] Try {attempt+1}: {current_bank_code} | rek: {rekening}")
-            # MENGGUNAKAN GET SESUAI DOKUMENTASI TERBARU api.co.id
-            res = requests.get(BASE_URL, params=params, headers=headers, timeout=15)
+            print(f"[API REQ] {rekening} | Try: {current_bank_code}")
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=12)
             
+            # Jika error server atau rate limit, tunggu sebentar lalu coba lagi format yang sama (atau lanjut loop)
             if res.status_code in [429, 500, 502, 503, 504]:
+                print(f"[API RETRY] HTTP {res.status_code} on {current_bank_code}. Waiting...")
                 time.sleep(3)
                 continue
 
-            # Jika API Key salah atau saldo habis, tampilkan di log
             if res.status_code == 401 or res.status_code == 402:
                 print(f"[AUTH ERROR] API Key bermasalah atau Saldo api.co.id Habis (HTTP {res.status_code})")
                 return None
@@ -101,28 +188,25 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
             data = res.json()
             inner = data.get("data")
             
-            # KONDISI SUKSES MUTLAK:
-            # 1. is_success True
-            # 2. data tidak None
-            # 3. score > 0 (artinya ditemukan/diproses)
-            if data.get("is_success") and inner and inner.get("score", 0) > 0:
+            # LOGIKA SUKSES: Jika API merespon sukses dan ada data objeknya
+            # Kami tidak lagi mewajibkan score > 0 agar tidak terjadi loop tak berujung jika account memang tidak ketemu
+            if data.get("is_success") and inner:
+                print(f"[API OK] Found: {inner.get('name')} | Score: {inner.get('score')}")
                 return {
                     "nama_bank": inner.get("name"),
                     "is_valid": inner.get("is_valid", False),
                     "score": inner.get("score", 0)
                 }
             
-            # Jika is_success False atau Score 0 atau Data Null, 
-            # kita anggap API sedang error sementara atau format kode bank salah.
-            print(f"[API FAIL] Format {current_bank_code} gagal/score 0. Mencoba lagi...")
-            time.sleep(2)
+            # Jika is_success False, tampilkan alasannya (misal: "Bank code not found")
+            msg = data.get("message", "Fail")
+            print(f"[API FAIL] {current_bank_code}: {msg}")
             
         except Exception as e:
-            print(f"[API ERROR] {e}. Retry...")
-            time.sleep(3)
-            continue
+            print(f"[API ERROR] {e}")
+            time.sleep(2)
 
-    print(f"Gagal total setelah 4 format/percobaan: {bank_clean} | {rekening}")
+    print(f"[DONE] Semua format gagal untuk: {rekening}")
     return None
 
 
@@ -185,24 +269,12 @@ def generate_stream(records, code, start_quota):
                     data = future.result()
                     processed_count += 1
                     
-                    # POTONG KUOTA REAL-TIME (Per baris yang muncul)
-                    with codes_lock:
-                        codes = load_codes()
-                        current_q = codes.get(code, 0)
-                        if not isinstance(current_q, int):
-                            current_q = 0 if current_q is True else 100
-                            
-                        # Kurangi 1
-                        new_q = max(0, current_q - 1)
-                        codes[code] = new_q
-                        save_codes(codes)
-                        
-                        # Beritahu frontend sisa kuota terbaru
-                        data['sisa_kuota'] = new_q
+                    # POTONG KUOTA REAL-TIME
+                    new_q = deduct_quota(code)
+                    data['sisa_kuota'] = new_q
                         
                     yield f"data: {json.dumps(data)}\n\n"
                     
-                    # Jika kuota benar-benar habis di tengah jalan, stop proses
                     if new_q <= 0:
                         yield f"data: {json.dumps({'type':'error','message':'Kuota telah habis di tengah proses.'})}\n\n"
                         break
@@ -229,25 +301,12 @@ def verify_code():
     if not code:
         return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
 
-    with codes_lock:
-        codes = load_codes()
+    quota = get_quota(code)
+    if quota is None:
+        return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
 
-        if code not in codes:
-            return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
-
-        quota = codes[code]
-        if not isinstance(quota, int):
-            # Migrasi kode lama: jika True berarti sudah habis (0), jika False set default 100
-            if quota is True:
-                codes[code] = 0
-                quota = 0
-            else:
-                codes[code] = 100
-                quota = 100
-            save_codes(codes)
-
-        if quota <= 0:
-            return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
+    if quota <= 0:
+        return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
 
     return jsonify({"valid": True, "quota": quota, "message": "Kode valid, selamat menggunakan!"})
 
@@ -271,21 +330,14 @@ def stream():
     except Exception as e:
         return jsonify({"error": "Gagal membaca Excel: " + str(e)}), 400
 
-    with codes_lock:
-        codes = load_codes()
-        if code not in codes:
-            return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
+    quota = get_quota(code)
+    if quota is None:
+        return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
             
-        quota = codes[code]
-        if not isinstance(quota, int):
-            quota = 0 if quota is True else 100
+    if quota <= 0:
+        return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
             
-        if quota <= 0:
-            return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
-            
-        # Kita tidak lagi potong total di depan (agar fair jika proses terhenti)
-        # Cukup pastikan kode valid dan sisa kuota > 0
-        start_quota = quota
+    start_quota = quota
 
     # Lanjutkan proses jika kuota aman
     return Response(
@@ -359,5 +411,8 @@ def download():
 
 
 if __name__ == '__main__':
+    # Jalankan migrasi satu kali saat startup
+    migrate_to_redis()
+    
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
