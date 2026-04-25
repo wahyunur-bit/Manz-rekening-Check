@@ -16,8 +16,12 @@ API_KEY   = os.getenv("APICOID_API_KEY", "")
 ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
 # ─── ENDPOINT API ──────────────────────────────────────
-# Gunakan endpoint resmi use.api.co.id untuk stabilitas terbaik
-BASE_URL  = "https://use.api.co.id/validation"
+# Daftar endpoint untuk mekanisme fallback
+ENDPOINTS = [
+    "https://use.api.co.id/validation",
+    "https://api.api.co.id/v1/bank/account",
+    "https://use.api.co.id/v1/bank/account"
+]
 
 # ─── LICENSE / QUOTA SYSTEM ────────────────────────────
 # Simpan di Redis jika ada, fallback ke file JSON lokal
@@ -144,105 +148,92 @@ def clean_rekening(val) -> str:
 
 def cek_rekening(rekening: str, bank: str, session=None) -> dict:
     """
-    Cek rekening ke api.api.co.id / use.api.co.id
-    Return dict:
-      {"account_name": str}  → sukses, nama ditemukan
-      {"error": str}         → gagal
+    Cek rekening dengan mekanisme fallback multi-endpoint dan multi-format.
     """
     if not API_KEY:
         return {"error": "APICOID_API_KEY belum di-set di Railway Variables"}
 
-    caller  = session or requests
+    caller = session or requests
+    bank_input = bank.strip().lower()
     
-    # Gunakan x-api-co-id sesuai spesifikasi terbaru (sama dengan fetch_banks.py)
-    headers = {
-        "x-api-co-id": API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-    # Bersihkan kode bank
-    bank_clean = re.sub(r'\s+', '', bank.strip().lower())
-
-    # Payload: gunakan bank_code & account_number
-    payload = {
-        "bank_code": bank_clean,
-        "account_number": rekening
-    }
+    # 1. Bersihkan kode bank (contoh: 'bca')
+    bank_simple = re.sub(r'[^a-z0-9]', '', bank_input)
+    # 2. Kode bank dengan prefix (contoh: 'bank_bca')
+    bank_prefixed = bank_simple if bank_simple.startswith('bank_') else f"bank_{bank_simple}"
 
     last_err = "Unknown error"
 
-    for attempt in range(3):  # Retry 3x
-        try:
-            print(f"[API] Attempt {attempt+1}: rekening={rekening} bank={bank_clean}")
-            res = caller.post(BASE_URL, json=payload, headers=headers, timeout=15)
+    # Coba berbagai endpoint
+    for url in ENDPOINTS:
+        # Coba berbagai format kode bank
+        for b_code in [bank_simple, bank_prefixed]:
+            # Coba berbagai jenis header
+            for h_type in ["x-api-co-id", "Bearer"]:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+                if h_type == "x-api-co-id":
+                    headers["x-api-co-id"] = API_KEY
+                else:
+                    headers["Authorization"] = f"Bearer {API_KEY}"
 
-            print(f"[API] HTTP {res.status_code} | body={res.text[:250]}")
+                # Coba berbagai nama field untuk bank
+                for bank_field in ["bank_code", "bank"]:
+                    payload = {
+                        bank_field: b_code,
+                        "account_number": rekening
+                    }
 
-            # Rate limited
-            if res.status_code == 429:
-                time.sleep(2 ** attempt)
-                continue
+                    try:
+                        print(f"[API] Probing: url={url} bank={b_code} field={bank_field} auth={h_type}")
+                        res = caller.post(url, json=payload, headers=headers, timeout=10)
 
-            # Auth error
-            if res.status_code in (401, 403):
-                return {"error": f"API Key salah / tidak aktif (HTTP {res.status_code})"}
+                        if res.status_code == 200:
+                            data = res.json()
+                            
+                            # Logika parsing yang sangat fleksibel
+                            is_valid = data.get("is_valid") or data.get("valid") or data.get("success") or data.get("is_success")
+                            name = data.get("name") or data.get("account_name") or data.get("account_holder_name") or data.get("account_holder")
+                            
+                            # Check nested 'data'
+                            if not name and isinstance(data.get("data"), dict):
+                                inner = data["data"]
+                                name = inner.get("name") or inner.get("account_name") or inner.get("account_holder_name")
+                                if is_valid is None:
+                                    is_valid = inner.get("is_valid") or inner.get("success")
 
-            # Saldo habis
-            if res.status_code == 402:
-                return {"error": "Saldo api.co.id habis"}
+                            if name:
+                                return {"account_name": str(name).strip()}
+                            
+                            if is_valid is False:
+                                msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
+                                return {"error": str(msg)}
+                        
+                        elif res.status_code == 404:
+                            # Endpoint ini salah, lanjut ke endpoint berikutnya
+                            last_err = f"Endpoint 404: {url}"
+                            break # Keluar dari loop bank_field & auth_type untuk endpoint ini
+                        
+                        elif res.status_code in (401, 403):
+                            last_err = f"Auth Error ({res.status_code}) pada {url}"
+                            # Coba auth type lain
+                            continue
+                        
+                        elif res.status_code == 402:
+                            return {"error": "Saldo api.co.id habis"}
+                        
+                        else:
+                            try:
+                                e_msg = res.json().get("message") or res.json().get("msg")
+                                if e_msg: last_err = e_msg
+                                else: last_err = f"HTTP {res.status_code}"
+                            except:
+                                last_err = f"HTTP {res.status_code}"
 
-            if res.status_code != 200:
-                # Coba parsing error message jika ada
-                try:
-                    e_data = res.json()
-                    last_err = e_data.get("message") or e_data.get("msg") or f"HTTP {res.status_code}"
-                except:
-                    last_err = f"HTTP {res.status_code}: {res.text[:100]}"
-                
-                time.sleep(1)
-                continue
-
-            data = res.json()
-
-            # ── PARSE RESPONSE (MULTI-FORMAT) ────────────────
-            
-            # 1. Format Flat (Terbaru): {"is_valid": true, "name": "...", "score": 10}
-            is_valid = data.get("is_valid") or data.get("valid") or data.get("success") or data.get("is_success")
-            
-            # Ambil nama dari berbagai kemungkinan key
-            name = data.get("name") or data.get("account_name") or data.get("account_holder_name")
-            
-            # 2. Format Nested: {"data": {"name": "..."}}
-            if not name and isinstance(data.get("data"), dict):
-                inner = data["data"]
-                name = inner.get("name") or inner.get("account_name") or inner.get("account_holder_name")
-                if is_valid is None:
-                    is_valid = inner.get("is_valid") or inner.get("success")
-
-            # Jika ketemu nama, anggap sukses
-            if name:
-                return {"account_name": str(name).strip()}
-
-            # Jika is_valid explicitly false atau memang tidak ada nama
-            if is_valid is False:
-                msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
-                return {"error": str(msg)}
-
-            # Fallback jika tidak ada name tapi is_valid true (aneh tapi mungkin)
-            if is_valid:
-                return {"error": "Data ditemukan tapi nama kosong"}
-
-            last_err = data.get("message") or data.get("msg") or "Format respons tidak dikenali"
-            
-        except requests.exceptions.Timeout:
-            last_err = "Timeout"
-            time.sleep(1)
-            continue
-        except Exception as e:
-            last_err = str(e)
-            time.sleep(1)
-            continue
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
 
     return {"error": last_err}
 
