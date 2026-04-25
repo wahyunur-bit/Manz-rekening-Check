@@ -195,55 +195,61 @@ def cek_rekening(rekening: str, bank: str, nama_input: str = "", session=None) -
             "account_name": nama_input
         }
 
-        try:
-            print(f"[CEK] GET {BASE_URL_OFFICIAL} | bank={bank_code} | rek={rekening} | nama={nama_input}")
-            res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=15)
-            
-            if res.status_code == 200:
-                data = res.json()
-                print(f"[RESP] {data}")
+        # Retry hingga 3x untuk setiap kode bank (mengatasi timeout sporadis)
+        for attempt in range(3):
+            try:
+                print(f"[CEK] GET {BASE_URL_OFFICIAL} | bank={bank_code} | rek={rekening} | attempt={attempt+1}")
+                res = caller.get(BASE_URL_OFFICIAL, params=params, headers=headers, timeout=30)
                 
-                if data.get("is_success"):
-                    inner = data.get("data", {})
-                    if inner:
-                        res_name = inner.get("name") or inner.get("account_name")
-                        is_valid = inner.get("is_valid", False)
-                        score = inner.get("score", 0)
-                        api_msg = inner.get("message", "")
-
-                        if res_name:
-                            # Berhasil mendapat nama!
-                            return {"account_name": str(res_name).strip(), "score": score}
-                        
-                        if not is_valid:
-                            # API bilang invalid (rekening tidak ditemukan di bank)
-                            last_err = api_msg or "Bank account was not found"
-                            # Coba kode bank berikutnya
-                            continue
-                else:
-                    # is_success = false (misal: invalid API key, bank_code salah)
-                    msg = data.get("message", "Unknown error")
-                    print(f"[FAIL] {msg}")
-                    last_err = msg
+                if res.status_code == 200:
+                    data = res.json()
+                    print(f"[RESP] {data}")
                     
-                    # Jika masalah auth, langsung berhenti
-                    if "api key" in msg.lower() or "unauthorized" in msg.lower():
-                        return {"error": msg}
-                    continue
-            
-            elif res.status_code == 401:
-                return {"error": "API Key tidak valid atau expired"}
-            elif res.status_code == 403:
-                return {"error": "Akses ditolak (saldo habis?)"}
-            else:
-                last_err = f"HTTP {res.status_code}"
+                    if data.get("is_success"):
+                        inner = data.get("data", {})
+                        if inner:
+                            res_name = inner.get("name") or inner.get("account_name")
+                            is_valid = inner.get("is_valid", False)
+                            score = inner.get("score", 0)
+                            api_msg = inner.get("message", "")
+
+                            if res_name:
+                                return {"account_name": str(res_name).strip(), "score": score}
+                            
+                            if not is_valid:
+                                last_err = api_msg or "Bank account was not found"
+                                break  # Kode bank ini gagal, coba kode berikutnya
+                    else:
+                        msg = data.get("message", "Unknown error")
+                        print(f"[FAIL] {msg}")
+                        last_err = msg
+                        if "api key" in msg.lower() or "unauthorized" in msg.lower():
+                            return {"error": msg}
+                        break  # Kode bank ini gagal, coba kode berikutnya
                 
-        except requests.exceptions.Timeout:
-            last_err = "Timeout - server lambat"
-            continue
-        except Exception as e:
-            last_err = str(e)
-            continue
+                elif res.status_code == 401:
+                    return {"error": "API Key tidak valid atau expired"}
+                elif res.status_code == 403:
+                    return {"error": "Akses ditolak (saldo habis?)"}
+                else:
+                    last_err = f"HTTP {res.status_code}"
+                    break
+                    
+            except requests.exceptions.Timeout:
+                print(f"[TIMEOUT] attempt {attempt+1}/3 untuk {bank_code} | {rekening}")
+                last_err = "Timeout - server lambat"
+                if attempt < 2:
+                    time.sleep(2)  # Tunggu 2 detik sebelum retry
+                continue
+            except requests.exceptions.ConnectionError:
+                print(f"[CONN ERR] attempt {attempt+1}/3")
+                last_err = "Koneksi gagal"
+                if attempt < 2:
+                    time.sleep(2)
+                continue
+            except Exception as e:
+                last_err = str(e)
+                break
 
     return {"error": last_err}
 
@@ -325,7 +331,7 @@ def generate_stream(records: list, code: str):
     processed = 0
     try:
         with requests.Session() as session:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as exe:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as exe:
                 futures = {
                     exe.submit(proses_satu, (i, row, session)): i
                     for i, row in enumerate(records)
