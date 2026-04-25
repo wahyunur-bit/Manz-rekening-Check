@@ -3,28 +3,25 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Rekening Validator Pro | Validasi Rekening Bank Real-Time</title>
-<meta name="description" content="Tool validasi rekening bank batch real-time. Cepat, akurat, dan mendukung berbagai bank di Indonesia.">
-<meta name="keywords" content="cek rekening, validasi bank, bank validator, batch account check">
+<title>Rekening Validator Pro</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg: #02040a;
-  --surface: rgba(13, 17, 23, 0.6);
-  --surface-hover: rgba(20, 26, 35, 0.8);
-  --border: rgba(0, 229, 255, 0.15);
-  --border-hover: rgba(0, 229, 255, 0.4);
+  --surface: rgba(13,17,23,0.8);
+  --surface2: rgba(20,26,38,0.9);
+  --border: rgba(0,229,255,0.12);
+  --border-h: rgba(0,229,255,0.35);
   --accent: #00e5ff;
-  --accent-glow: rgba(0, 229, 255, 0.3);
   --accent2: #7c3aed;
   --green: #00ffa3;
   --yellow: #fbbf24;
   --red: #ff4d6d;
   --text: #e2e8f0;
   --muted: #64748b;
-  --font-display: 'Orbitron', sans-serif;
-  --font-body: 'Syne', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --mono: 'JetBrains Mono', monospace;
+  --display: 'Orbitron', sans-serif;
+  --body: 'Syne', sans-serif;
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -32,442 +29,610 @@
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-body);
+  font-family: var(--body);
   min-height: 100vh;
   overflow-x: hidden;
-  perspective: 1000px;
 }
 
-#bg-canvas {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: radial-gradient(circle at center, #0a0e1a 0%, #02040a 100%);
-}
+/* ── CANVAS BG ── */
+#cvs { position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-/* Nebula Background Layer */
-.nebula {
-  position: fixed;
-  inset: 0;
-  background: url('file:///c:/Users/ROG G532 LV/.gemini/antigravity/brain/8a23335b-84b9-4c90-aa98-d7f45d814c30/futuristic_nebula_background_1777090263033.png') center/cover no-repeat;
-  opacity: 0.25;
-  filter: blur(50px);
-  z-index: -2;
-  animation: nebulaFloat 60s linear infinite alternate;
-}
-
-@keyframes nebulaFloat {
-  from { transform: scale(1); }
-  to { transform: scale(1.1) rotate(2deg); }
-}
-
-.container {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 40px 20px 80px;
+/* ── CONTAINER ── */
+.wrap {
   position: relative;
   z-index: 1;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
 }
 
-header {
-  text-align: center;
-  margin-bottom: 60px;
-  animation: headerIn 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes headerIn {
-  from { opacity: 0; transform: translateY(-30px); filter: blur(10px); }
-  to { opacity: 1; transform: translateY(0); filter: blur(0); }
-}
-
-.logo-badge {
-  display: inline-flex;
+/* ── GATE ── */
+#gate {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  background: rgba(0, 229, 255, 0.05);
-  backdrop-filter: blur(5px);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 8px 20px;
-  font-size: 11px;
-  font-family: var(--font-display);
-  color: var(--accent);
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  margin-bottom: 24px;
-  box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+  justify-content: center;
+  padding: 40px 20px;
 }
 
-h1 {
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 5vw, 4rem);
+.gate-brand {
+  font-family: var(--display);
+  font-size: clamp(2rem,6vw,3.5rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent2) 100%);
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 55%, var(--accent2) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 30px rgba(0, 229, 255, 0.2));
+  text-align: center;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 25px rgba(0,229,255,0.2));
 }
 
-.subtitle {
-  margin-top: 15px;
+.gate-sub {
+  font-family: var(--mono);
   color: var(--muted);
-  font-size: 13px;
-  font-family: var(--font-mono);
-  letter-spacing: 0.2em;
+  font-size: 11px;
+  letter-spacing: 3px;
   text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 48px;
 }
 
-/* 3D Glass Card */
-.card {
+.gate-box {
+  width: 100%;
+  max-width: 460px;
   background: var(--surface);
-  backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   border-radius: 24px;
-  padding: 40px;
-  margin-bottom: 30px;
-  transition: transform 0.1s ease, border-color 0.4s ease, box-shadow 0.4s ease;
-  transform-style: preserve-3d;
-  will-change: transform;
-}
-
-.card:hover {
-  border-color: var(--border-hover);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 229, 255, 0.1);
-}
-
-.upload-zone {
-  border: 2px dashed var(--border);
-  border-radius: 20px;
-  padding: 60px 40px;
+  padding: 40px 36px;
   text-align: center;
-  cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(0, 229, 255, 0.02);
   position: relative;
   overflow: hidden;
 }
 
-.upload-zone input[type=file] {
+.gate-box::before {
+  content: '';
   position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
+  top: 0; left: 15%; right: 15%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .5;
+}
+
+.gate-icon { font-size: 52px; margin-bottom: 20px; display: block; }
+
+.gate-title {
+  font-family: var(--display);
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.gate-desc {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 28px;
+  line-height: 1.6;
+}
+
+.code-input {
   width: 100%;
-  height: 100%;
-  z-index: 10;
+  background: rgba(0,0,0,0.3);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 20px;
+  text-align: center;
+  letter-spacing: 5px;
+  padding: 16px;
+  outline: none;
+  transition: all .3s;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+
+.code-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,229,255,.08), 0 0 20px rgba(0,229,255,.15);
+}
+
+.gate-err {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: 12px;
+  min-height: 18px;
+  display: none;
+}
+
+/* ── BUTTONS ── */
+.btn {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 13px 24px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all .25s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.btn-cyan {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(0,229,255,.25);
+}
+
+.btn-cyan:hover:not(:disabled) {
+  box-shadow: 0 0 35px rgba(0,229,255,.45);
+  transform: translateY(-2px);
+}
+
+.btn-cyan:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: rgba(255,255,255,.03);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0,229,255,.04);
+}
+
+.btn-green {
+  background: rgba(0,255,163,.06);
+  color: var(--green);
+  border-color: rgba(0,255,163,.2);
+}
+
+.btn-green:hover {
+  background: rgba(0,255,163,.12);
+  border-color: var(--green);
+  box-shadow: 0 0 20px rgba(0,255,163,.2);
+}
+
+/* ── MAIN APP ── */
+#app { display:none; }
+
+/* ── TOP BAR ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.brand {
+  font-family: var(--display);
+  font-size: clamp(1.4rem,3vw,2.2rem);
+  font-weight: 800;
+  background: linear-gradient(135deg, #fff, var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.quota-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0,229,255,.06);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 8px 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.quota-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pls 2s ease-in-out infinite;
+}
+
+@keyframes pls {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:.4; transform:scale(.7); }
+}
+
+.quota-num { color: var(--accent); font-weight: 600; font-size: 14px; }
+
+/* ── CARD ── */
+.card {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 32px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .3s, box-shadow .3s;
+}
+
+.card:hover {
+  border-color: var(--border-h);
+  box-shadow: 0 20px 60px rgba(0,0,0,.4), 0 0 20px rgba(0,229,255,.05);
+}
+
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .25;
+}
+
+/* ── UPLOAD ── */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  padding: 50px 30px;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all .35s;
+}
+
+.upload-zone input {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer;
+  width: 100%; height: 100%; z-index: 5;
 }
 
 .upload-zone:hover, .upload-zone.drag {
   border-color: var(--accent);
-  background: rgba(0, 229, 255, 0.05);
-  box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.05);
+  background: rgba(0,229,255,.04);
 }
 
-.upload-zone::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(45deg, transparent, rgba(0, 229, 255, 0.05), transparent);
-  transform: translateX(-100%);
-  transition: transform 0.6s;
-}
+.upload-icon { font-size: 48px; margin-bottom: 14px; display: block; }
+.upload-title { font-family: var(--display); font-size: 15px; letter-spacing: 1px; color: var(--text); }
+.upload-hint { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
 
-.upload-zone:hover::after {
-  transform: translateX(100%);
-}
-
-.upload-icon {
-  font-size: 56px;
-  margin-bottom: 20px;
-  display: block;
-  filter: drop-shadow(0 0 15px var(--accent-glow));
-}
-
-.upload-text {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: 1px;
+.file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,229,255,.08);
+  border: 1px solid rgba(0,229,255,.2);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 14px;
 }
 
 .actions {
   display: flex;
-  gap: 15px;
-  margin-top: 30px;
+  gap: 12px;
+  margin-top: 24px;
   flex-wrap: wrap;
-  justify-content: center;
 }
 
-button {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 14px 28px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  display: inline-flex;
+/* ── QUOTA WARNING ── */
+.quota-warn {
+  display: none;
   align-items: center;
   gap: 10px;
+  background: rgba(251,191,36,.06);
+  border: 1px solid rgba(251,191,36,.2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--yellow);
+  margin-top: 14px;
 }
 
-.btn-primary {
-  background: var(--accent);
-  color: #000;
-  box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+/* ── PROGRESS ── */
+#pArea { display:none; margin-top:24px; }
+
+.p-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
-.btn-primary:hover {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 10px 40px rgba(0, 229, 255, 0.5);
-}
-
-.btn-ghost {
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  border: 1px solid var(--border);
-}
-
-.btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--accent);
+.p-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--accent);
-  transform: translateY(-2px);
 }
 
-.btn-green {
-  background: rgba(0, 255, 163, 0.05);
-  color: var(--green);
-  border: 1px solid rgba(0, 255, 163, 0.2);
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(0,229,255,.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
 }
 
-.btn-green:hover {
-  background: rgba(0, 255, 163, 0.12);
-  border-color: var(--green);
-  box-shadow: 0 0 25px rgba(0, 255, 163, 0.2);
-}
+@keyframes spin { to { transform:rotate(360deg); } }
 
-/* Progress Section */
-#progress-area {
-  display: none;
-  margin-top: 40px;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 16px;
-  border: 1px solid var(--border);
-}
+.p-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 
-.progress-bar-wrap {
-  background: rgba(255, 255, 255, 0.05);
+.pbar-wrap {
+  background: rgba(255,255,255,.04);
   border-radius: 100px;
-  height: 8px;
+  height: 7px;
   overflow: hidden;
-  margin: 15px 0;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+  margin-bottom: 14px;
 }
 
-.progress-bar {
+.pbar {
   height: 100%;
   border-radius: 100px;
   background: linear-gradient(90deg, var(--accent2), var(--accent), var(--green));
   background-size: 200% 100%;
-  animation: progressGlow 2s linear infinite;
-  transition: width 0.4s ease;
+  animation: pglow 2s linear infinite;
+  transition: width .4s ease;
+  width: 0%;
 }
 
-@keyframes progressGlow {
-  0% { background-position: 100% 0%; }
-  100% { background-position: -100% 0%; }
+@keyframes pglow {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
-/* Table Design */
-.table-wrap {
-  overflow-x: auto;
-  border-radius: 16px;
-  background: rgba(0, 0, 0, 0.2);
+.stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sdot { width:7px; height:7px; border-radius:50%; }
+
+/* ── TABLE ── */
+.t-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.t-title {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.dl-group { display:flex; gap:8px; }
+
+.table-wrap { overflow-x:auto; border-radius:12px; }
 
 table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  font-size: 13px;
 }
 
+thead tr { background: rgba(0,229,255,.04); }
+
 th {
-  background: rgba(0, 229, 255, 0.05);
-  padding: 16px;
-  font-family: var(--font-display);
+  padding: 13px 16px;
+  font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--accent);
   text-align: left;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 td {
-  padding: 16px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  color: #a4b1cd;
+  padding: 13px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(30,45,69,.4);
+  white-space: nowrap;
 }
 
 tbody tr {
-  transition: all 0.3s;
+  animation: rowIn .35s ease forwards;
+  opacity: 0;
+  transform: translateX(-8px);
 }
 
-tbody tr:hover {
-  background: rgba(0, 229, 255, 0.03);
-  color: #fff;
-}
+@keyframes rowIn { to { opacity:1; transform:translateX(0); } }
+
+tbody tr:hover { background: rgba(0,229,255,.025); }
+
+td:nth-child(2) { color: var(--text); font-family: var(--body); font-weight: 600; }
+
+/* placeholder rows */
+.row-pending td { color: var(--muted); font-style: italic; animation: none; opacity: 1; transform: none; }
 
 .badge {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
   border-radius: 6px;
   font-size: 10px;
   font-weight: 700;
-  font-family: var(--font-display);
+  font-family: var(--mono);
   letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
-.badge-match { background: rgba(0, 255, 163, 0.1); color: var(--green); border: 1px solid var(--green); }
-.badge-diff { background: rgba(251, 191, 36, 0.1); color: var(--yellow); border: 1px solid var(--yellow); }
-.badge-invalid { background: rgba(255, 77, 109, 0.1); color: var(--red); border: 1px solid var(--red); }
-.badge-error { background: rgba(255, 77, 109, 0.2); color: var(--red); border: 1px solid var(--red); box-shadow: 0 0 10px rgba(255, 77, 109, 0.3); }
+.bm { background:rgba(0,255,163,.1); color:var(--green); border:1px solid rgba(0,255,163,.25); }
+.bd { background:rgba(251,191,36,.1); color:var(--yellow); border:1px solid rgba(251,191,36,.25); }
+.bi { background:rgba(255,77,109,.1); color:var(--red); border:1px solid rgba(255,77,109,.2); }
+.be { background:rgba(255,77,109,.2); color:var(--red); border:1px solid var(--red); }
 
-/* Gate / Login */
-#gate {
-  display: flex;
-  flex-direction: column;
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  bottom: 28px; right: 28px;
+  background: var(--green);
+  color: #000;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 14px 22px;
+  border-radius: 12px;
+  display: none;
   align-items: center;
-  justify-content: center;
-  min-height: 80vh;
+  gap: 8px;
+  box-shadow: 0 8px 30px rgba(0,255,163,.35);
+  z-index: 999;
+  animation: toastIn .4s ease;
 }
 
-.gate-card {
-  max-width: 480px;
-  width: 100%;
-  text-align: center;
+@keyframes toastIn {
+  from { transform:translateY(20px); opacity:0; }
+  to { transform:translateY(0); opacity:1; }
 }
 
-.code-input {
-  width: 100%;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 18px;
-  text-align: center;
-  letter-spacing: 4px;
-  outline: none;
-  margin: 20px 0;
-  transition: all 0.3s;
-}
-
-.code-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 30px rgba(0, 229, 255, 0.15);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-#mainApp { display: none; }
-
-/* Custom Scrollbar */
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent); }
-
-@media (max-width: 768px) {
-  .card { padding: 25px; }
-  h1 { font-size: 2.5rem; }
-}
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 </style>
 </head>
 <body>
 
-<canvas id="bg-canvas"></canvas>
-<div class="nebula"></div>
+<canvas id="cvs"></canvas>
 
-<div class="container">
+<!-- ── GATE ── -->
+<div id="gate">
+  <div class="gate-brand">REKENING VALIDATOR</div>
+  <div class="gate-sub">// professional bank account verification system</div>
 
-  <!-- ACTIVATION GATE -->
-  <div id="gate">
-    <header>
-      <div class="logo-badge">Secure Access Protocol</div>
-      <h1>Celestial Validator</h1>
-      <p class="subtitle">// authentication required</p>
-    </header>
-    <div class="card gate-card" data-tilt>
-      <span class="upload-icon" style="font-size: 64px;">🌌</span>
-      <h2 style="font-family:var(--font-display); margin-bottom:10px;">Enter Neural Key</h2>
-      <p style="color:var(--muted); font-size:14px;">Please provide your activation sequence to initialize the validator.</p>
-      <input type="text" class="code-input" id="codeInput" placeholder="KODE-XXXX" autocomplete="off">
-      <button class="btn-primary" id="btnVerify" onclick="verifyCode()" style="width:100%; justify-content:center;">🔓 Initialize System</button>
-      <div id="gateError" style="color:var(--red); margin-top:15px; font-size:12px; display:none; font-family:var(--font-mono);"></div>
-    </div>
+  <div class="gate-box">
+    <span class="gate-icon">🔐</span>
+    <div class="gate-title">Masukkan Kode Aktivasi</div>
+    <div class="gate-desc">Kode bersifat permanen hingga kuota habis.<br>Setiap 1 hasil memotong 1 kuota.</div>
+    <input class="code-input" id="codeInput" placeholder="KODE-XXXX" autocomplete="off"
+      onkeydown="if(event.key==='Enter') verifyCode()">
+    <button class="btn btn-cyan" id="btnVerify" onclick="verifyCode()" style="width:100%;justify-content:center;">
+      🔓 Verifikasi Kode
+    </button>
+    <div class="gate-err" id="gateErr"></div>
   </div>
+</div>
 
-  <!-- MAIN APP -->
-  <div id="mainApp">
-    <header style="display:flex; justify-content:space-between; align-items:flex-end; text-align:left;">
+<!-- ── MAIN APP ── -->
+<div id="app">
+  <div class="wrap">
+
+    <!-- TOP BAR -->
+    <div class="topbar">
       <div>
-        <div class="logo-badge">System Online</div>
-        <h1>Celestial Validator</h1>
-        <p class="subtitle">// batch bank verification module</p>
+        <div class="brand">REKENING VALIDATOR</div>
+        <div style="font-family:var(--mono);color:var(--muted);font-size:11px;letter-spacing:2px;margin-top:4px;">// batch bank verification</div>
       </div>
-      <div id="quotaDisplay" style="background: rgba(0, 229, 255, 0.05); border: 1px solid var(--border); padding: 12px 20px; border-radius: 12px; font-family: var(--font-display); color: var(--accent); font-size: 12px; letter-spacing: 1px; display: none;">
-        KUOTA: --
+      <div class="quota-chip">
+        <div class="quota-dot"></div>
+        <span style="color:var(--muted);font-size:11px;">KUOTA AKTIF</span>
+        <span class="quota-num" id="quotaNum">—</span>
       </div>
-    </header>
+    </div>
 
-    <div class="card" data-tilt>
-      <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(this)">
-        <span class="upload-icon">💠</span>
-        <div class="upload-text">Upload Data Matrix</div>
-        <div class="upload-sub" style="color:var(--muted); font-size:12px; margin-top:10px;">Supported formats: .xlsx / .xls (Columns: nama, rekening, bank)</div>
+    <!-- UPLOAD CARD -->
+    <div class="card">
+      <div class="upload-zone" id="upZone">
+        <input type="file" id="fileIn" accept=".xlsx,.xls" onchange="onFile(this)">
+        <span class="upload-icon">📂</span>
+        <div class="upload-title">Drop File Excel atau Klik untuk Pilih</div>
+        <div class="upload-hint">Format: .xlsx / .xls · Kolom wajib: nama, rekening, bank</div>
       </div>
-      <div id="fileName" style="display:none; margin-top:15px;" class="logo-badge"></div>
+
+      <div id="fileTag" class="file-tag" style="display:none;">
+        📎 <span id="fileName"></span>
+        <span id="fileRows" style="color:var(--muted)"></span>
+      </div>
+
+      <div class="quota-warn" id="qWarn">
+        ⚠ Jumlah data melebihi kuota tersisa! Kurangi data atau top-up kuota.
+      </div>
 
       <div class="actions">
-        <button class="btn-primary" id="btnProses" onclick="proses()" disabled>
-          <span id="btnIcon">▶</span> Execute Validation
+        <button class="btn btn-cyan" id="btnProses" onclick="proses()" disabled>
+          <span id="btnTxt">▶ Proses Sekarang</span>
         </button>
-        <button class="btn-ghost" onclick="downloadTemplate()">⬇ System Template</button>
-        <a href="/supported-banks" class="btn-ghost" style="text-decoration:none;">⬇ Network Support</a>
+        <button class="btn btn-ghost" onclick="window.location='/template'">⬇ Download Template</button>
       </div>
 
-      <div id="progress-area">
-        <div style="display:flex; justify-content:space-between; font-size:12px; font-family:var(--font-mono); margin-bottom:10px;">
-          <span id="progressText" style="color:var(--accent)">Awaiting input...</span>
-          <span id="progressCount" style="color:var(--muted)">0 / 0</span>
+      <!-- PROGRESS -->
+      <div id="pArea">
+        <div class="p-header">
+          <div class="p-label">
+            <div class="spinner" id="spinner"></div>
+            <span id="pText">Memproses...</span>
+          </div>
+          <div class="p-count" id="pCount">0 / 0</div>
         </div>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" id="progressBar" style="width:0%"></div>
-        </div>
-        <div style="display:flex; gap:15px; margin-top:15px;">
-          <span style="font-size:10px; font-family:var(--font-mono); color:var(--green);" id="cntMatch">0 MATCH</span>
-          <span style="font-size:10px; font-family:var(--font-mono); color:var(--yellow);" id="cntDiff">0 DIFF</span>
-          <span style="font-size:10px; font-family:var(--font-mono); color:var(--red);" id="cntInvalid">0 INVALID</span>
+        <div class="pbar-wrap"><div class="pbar" id="pBar"></div></div>
+        <div class="stats">
+          <div class="stat"><div class="sdot" style="background:var(--green)"></div><span id="sMatch">0 Match</span></div>
+          <div class="stat"><div class="sdot" style="background:var(--yellow)"></div><span id="sDiff">0 Beda</span></div>
+          <div class="stat"><div class="sdot" style="background:var(--red)"></div><span id="sInvalid">0 Tidak Valid</span></div>
+          <div class="stat"><div class="sdot" style="background:#ff6b6b"></div><span id="sError">0 Error</span></div>
         </div>
       </div>
     </div>
 
+    <!-- RESULTS CARD -->
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h3 style="font-family:var(--font-display); font-size:14px; letter-spacing:2px; color:var(--accent);">⚡ Data Stream Results</h3>
-        <div style="display:flex; gap:10px;">
-          <button class="btn-green" onclick="download('xlsx')" style="padding:8px 16px; font-size:10px;">XLSX</button>
-          <button class="btn-green" onclick="download('csv')" style="padding:8px 16px; font-size:10px;">CSV</button>
+      <div class="t-header">
+        <div class="t-title">⚡ Hasil Validasi</div>
+        <div class="dl-group">
+          <button class="btn btn-green" onclick="download('xlsx')" style="padding:8px 16px;font-size:10px;">↓ XLSX</button>
+          <button class="btn btn-green" onclick="download('csv')" style="padding:8px 16px;font-size:10px;">↓ CSV</button>
         </div>
       </div>
 
@@ -475,146 +640,150 @@ tbody tr:hover {
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Identity</th>
-              <th>Account</th>
-              <th>Network</th>
-              <th>Registry Name</th>
-              <th>Status</th>
+              <th>No</th><th>Nama</th><th>Rekening</th>
+              <th>Bank</th><th>Nama di Bank</th><th>Status</th>
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="6" style="text-align:center; padding:40px; color:var(--muted);">Upload data sequence to begin analysis...</td></tr>
+            <tr><td colspan="6">
+              <div class="empty-state">📡 Upload file dan klik Proses untuk mulai validasi</div>
+            </td></tr>
           </tbody>
         </table>
       </div>
     </div>
-  </div>
 
+  </div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script>
-// --- Background Stars ---
-const canvas = document.getElementById('bg-canvas');
-const ctx = canvas.getContext('2d');
+// ── STARS ──────────────────────────────────────────────
+const cvs = document.getElementById('cvs');
+const ctx = cvs.getContext('2d');
 let stars = [];
 function initStars() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  stars = [];
-  for(let i=0; i<200; i++) {
-    stars.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      size: Math.random() * 2,
-      speed: Math.random() * 0.5 + 0.1
-    });
-  }
+  cvs.width  = window.innerWidth;
+  cvs.height = window.innerHeight;
+  stars = Array.from({length: 160}, () => ({
+    x: Math.random() * cvs.width,
+    y: Math.random() * cvs.height,
+    r: Math.random() * 1.5,
+    s: Math.random() * 0.4 + 0.05
+  }));
 }
 function drawStars() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle = "#fff";
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
   stars.forEach(s => {
     ctx.beginPath();
-    ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + s.r * 0.3})`;
     ctx.fill();
-    s.y += s.speed;
-    if(s.y > canvas.height) s.y = 0;
+    s.y += s.s;
+    if (s.y > cvs.height) { s.y = 0; s.x = Math.random() * cvs.width; }
   });
   requestAnimationFrame(drawStars);
 }
 window.addEventListener('resize', initStars);
-initStars();
-drawStars();
+initStars(); drawStars();
 
-// --- 3D Tilt Effect ---
-document.addEventListener('mousemove', e => {
-  const cards = document.querySelectorAll('[data-tilt]');
-  const mouseX = e.clientX;
-  const mouseY = e.clientY;
-
-  cards.forEach(card => {
-    const rect = card.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const deltaX = mouseX - centerX;
-    const deltaY = mouseY - centerY;
-    const rotateX = (deltaY / (window.innerHeight / 2)) * -10;
-    const rotateY = (deltaX / (window.innerWidth / 2)) * 10;
-
-    card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-5px)`;
-  });
+// ── DRAG & DROP ─────────────────────────────────────────
+const upZone = document.getElementById('upZone');
+upZone.addEventListener('dragover',  e => { e.preventDefault(); upZone.classList.add('drag'); });
+upZone.addEventListener('dragleave', () => upZone.classList.remove('drag'));
+upZone.addEventListener('drop', e => {
+  e.preventDefault(); upZone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) { document.getElementById('fileIn').files = e.dataTransfer.files; onFile(document.getElementById('fileIn')); }
 });
 
-document.addEventListener('mouseleave', () => {
-  const cards = document.querySelectorAll('[data-tilt]');
-  cards.forEach(card => card.style.transform = `rotateX(0deg) rotateY(0deg)`);
-});
+// ── STATE ───────────────────────────────────────────────
+let results = [], total = 0, done = 0, cM = 0, cD = 0, cI = 0, cE = 0;
+let currentCode = '', currentQuota = 0, fileRows = 0;
 
-// --- Core App Logic ---
-let results = [];
-let total = 0, done = 0, cMatch = 0, cDiff = 0, cInvalid = 0;
-let currentCode = '';
-
+// ── GATE ────────────────────────────────────────────────
 function verifyCode() {
   const code = document.getElementById('codeInput').value.trim();
-  const errEl = document.getElementById('gateError');
-  const btn = document.getElementById('btnVerify');
+  const errEl = document.getElementById('gateErr');
+  const btn   = document.getElementById('btnVerify');
   if (!code) return;
 
   btn.disabled = true;
-  btn.textContent = '⏳ Decrypting...';
-  
+  btn.textContent = '⏳ Memverifikasi...';
+  errEl.style.display = 'none';
+
   fetch('/verify-code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: code })
+    body: JSON.stringify({ code })
   })
   .then(r => r.json())
-  .then(data => {
-    if (data.valid) {
-      currentCode = code;
+  .then(d => {
+    if (d.valid) {
+      currentCode  = code.trim().toUpperCase();
+      currentQuota = d.quota;
       document.getElementById('gate').style.display = 'none';
-      document.getElementById('mainApp').style.display = 'block';
-      const qd = document.getElementById('quotaDisplay');
-      if (qd) {
-        qd.style.display = 'block';
-        qd.textContent = `KUOTA: ${data.quota}`;
-      }
+      document.getElementById('app').style.display  = 'block';
+      setQuota(d.quota);
     } else {
-      errEl.textContent = '✗ ' + (data.message || 'Access Denied');
+      errEl.textContent = '✗ ' + (d.message || 'Akses ditolak');
       errEl.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = '🔓 Initialize System';
+      btn.textContent = '🔓 Verifikasi Kode';
     }
   })
   .catch(() => {
-    errEl.textContent = '✗ Neural Link Failure';
+    errEl.textContent = '✗ Koneksi gagal. Coba lagi.';
     errEl.style.display = 'block';
     btn.disabled = false;
-    btn.textContent = '🔓 Initialize System';
+    btn.textContent = '🔓 Verifikasi Kode';
   });
 }
 
-function onFileChange(input) {
-  const f = input.files[0];
-  if (!f) return;
-  document.getElementById('fileName').textContent = 'MATRIX LOADED: ' + f.name.toUpperCase();
-  document.getElementById('fileName').style.display = 'inline-flex';
-  document.getElementById('btnProses').disabled = false;
+function setQuota(q) {
+  currentQuota = q;
+  document.getElementById('quotaNum').textContent = q;
+  document.getElementById('quotaNum').style.color = q > 10 ? 'var(--green)' : q > 0 ? 'var(--yellow)' : 'var(--red)';
+  // cek warning
+  if (fileRows > 0 && fileRows > q) {
+    document.getElementById('qWarn').style.display = 'flex';
+    document.getElementById('btnProses').disabled = true;
+  } else if (fileRows > 0) {
+    document.getElementById('qWarn').style.display = 'none';
+    document.getElementById('btnProses').disabled = false;
+  }
 }
 
-function proses() {
-  const file = document.getElementById('fileInput').files[0];
-  if (!file) return;
+// ── FILE CHANGE ─────────────────────────────────────────
+function onFile(input) {
+  const f = input.files[0];
+  if (!f) return;
+  document.getElementById('fileName').textContent = f.name;
+  document.getElementById('fileTag').style.display = 'inline-flex';
+  document.getElementById('fileRows').textContent = '';
 
-  results = []; done = 0; cMatch = 0; cDiff = 0; cInvalid = 0; total = 0;
+  // Estimasi baris dari ukuran file (kasar, nanti update setelah proses start)
+  fileRows = 0;
+  document.getElementById('qWarn').style.display = 'none';
+  document.getElementById('btnProses').disabled = currentQuota <= 0;
+}
+
+// ── PROSES ──────────────────────────────────────────────
+function proses() {
+  const file = document.getElementById('fileIn').files[0];
+  if (!file) return;
+  if (currentQuota <= 0) { showToast('Kuota habis! Tidak bisa proses.', true); return; }
+
+  // Reset state
+  results = []; done = 0; cM = 0; cD = 0; cI = 0; cE = 0; total = 0;
   document.getElementById('tbody').innerHTML = '';
-  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('pBar').style.width = '0%';
   document.getElementById('btnProses').disabled = true;
-  document.getElementById('btnIcon').textContent = '⏳';
-  document.getElementById('progress-area').style.display = 'block';
-  document.getElementById('progressText').textContent = 'Initializing matrix scan...';
+  document.getElementById('btnTxt').textContent = '⏳ Memproses...';
+  document.getElementById('pArea').style.display = 'block';
+  document.getElementById('pText').textContent = 'Memulai validasi...';
+  document.getElementById('spinner').style.display = 'inline-block';
 
   const fd = new FormData();
   fd.append('file', file);
@@ -623,23 +792,23 @@ function proses() {
   fetch('/stream', { method: 'POST', body: fd })
   .then(async res => {
     if (!res.ok) {
-        let errMsg = 'Command failure';
-        try { const err = await res.json(); errMsg = err.error || errMsg; } catch(e) {}
-        throw new Error(errMsg);
+      let em = 'Gagal';
+      try { const e = await res.json(); em = e.error || em; } catch(x) {}
+      throw new Error(em);
     }
-    const reader = res.body.getReader();
+    const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
 
     function read() {
-      reader.read().then(({ done: streamDone, value }) => {
-        if (streamDone) return;
+      reader.read().then(({ done: sd, value }) => {
+        if (sd) return;
         buf += decoder.decode(value, { stream: true });
         const parts = buf.split('\n\n');
         buf = parts.pop();
         parts.forEach(p => {
-          const raw = p.replace(/^data:\s*/, '');
-          if (!raw.trim()) return;
+          const raw = p.replace(/^data:\s*/, '').trim();
+          if (!raw) return;
           try { handle(JSON.parse(raw)); } catch(e) {}
         });
         read();
@@ -648,26 +817,30 @@ function proses() {
     read();
   })
   .catch(e => {
-    document.getElementById('progressText').textContent = '✗ CRITICAL ERROR: ' + e.message;
+    document.getElementById('pText').textContent = '✗ ERROR: ' + e.message;
+    document.getElementById('spinner').style.display = 'none';
     document.getElementById('btnProses').disabled = false;
-    document.getElementById('btnIcon').textContent = '▶';
+    document.getElementById('btnTxt').textContent = '▶ Proses Sekarang';
   });
 }
 
 function handle(d) {
   if (d.type === 'start') {
     total = d.total;
-    document.getElementById('progressText').textContent = 'Scanning neural networks...';
-    document.getElementById('progressCount').textContent = `0 / ${total}`;
-    
+    fileRows = total;
+    document.getElementById('pCount').textContent = `0 / ${total}`;
+    document.getElementById('fileRows').textContent = ` (${total} baris)`;
+    document.getElementById('pText').textContent = 'Memvalidasi rekening...';
+
+    // Buat placeholder rows
     let html = '';
-    if (total > 0) {
-      for(let i = 1; i <= total; i++) {
-        html += `<tr id="row-${i}">
-          <td>${i}</td>
-          <td colspan="5" style="color:var(--muted); font-style:italic;">📡 Decrypting data packet...</td>
-        </tr>`;
-      }
+    for (let i = 1; i <= total; i++) {
+      html += `<tr class="row-pending" id="row-${i}">
+        <td style="color:var(--muted)">${i}</td>
+        <td colspan="5" style="color:var(--muted);font-style:italic;font-size:11px;">
+          📡 Menghubungi server bank...
+        </td>
+      </tr>`;
     }
     document.getElementById('tbody').innerHTML = html;
   }
@@ -675,65 +848,85 @@ function handle(d) {
   if (d.type === 'result') {
     results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
     done++;
+    if (d.hasil === 'MATCH')      cM++;
+    else if (d.hasil === 'TIDAK SAMA') cD++;
+    else if (d.hasil === 'ERROR') cE++;
+    else                          cI++;
 
-    if (d.hasil === 'MATCH') cMatch++;
-    else if (d.hasil === 'TIDAK SAMA') cDiff++;
-    else cInvalid++;
+    document.getElementById('sMatch').textContent   = cM + ' Match';
+    document.getElementById('sDiff').textContent    = cD + ' Beda';
+    document.getElementById('sInvalid').textContent = cI + ' Tidak Valid';
+    document.getElementById('sError').textContent   = cE + ' Error';
+    document.getElementById('pCount').textContent   = `${done} / ${total}`;
+    document.getElementById('pBar').style.width     = `${(done/total)*100}%`;
 
-    document.getElementById('cntMatch').textContent = cMatch + ' MATCH';
-    document.getElementById('cntDiff').textContent = cDiff + ' DIFF';
-    document.getElementById('cntInvalid').textContent = cInvalid + ' INVALID';
-    document.getElementById('progressCount').textContent = `${done} / ${total}`;
-    document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
+    if (d.sisa_kuota !== undefined) setQuota(d.sisa_kuota);
 
-    let cls = 'badge-invalid';
-    if (d.hasil === 'MATCH') cls = 'badge-match';
-    else if (d.hasil === 'TIDAK SAMA') cls = 'badge-diff';
-    else if (d.hasil === 'ERROR') cls = 'badge-error';
-    const tr = document.getElementById(`row-${d.index}`);
+    const cls = d.hasil === 'MATCH' ? 'bm' : d.hasil === 'TIDAK SAMA' ? 'bd' : d.hasil === 'ERROR' ? 'be' : 'bi';
+    const tr  = document.getElementById(`row-${d.index}`);
     if (tr) {
+      tr.className = '';
+      tr.style.animation = 'none';
+      tr.offsetHeight;
+      tr.style.animation = '';
       tr.innerHTML = `
-        <td style="color:var(--accent)">${d.index}</td>
-        <td style="color:#fff; font-weight:600;">${d.nama}</td>
-        <td>${d.rekening}</td>
-        <td>${d.bank.toUpperCase()}</td>
-        <td>${d.nama_bank || '-'}</td>
+        <td style="color:var(--muted);font-size:11px">${d.index}</td>
+        <td>${esc(d.nama)}</td>
+        <td>${esc(d.rekening)}</td>
+        <td>${esc(d.bank.toUpperCase())}</td>
+        <td style="color:${d.hasil==='MATCH'?'var(--green)':d.hasil==='TIDAK SAMA'?'var(--yellow)':'var(--muted)'}">${esc(d.nama_bank)}</td>
         <td><span class="badge ${cls}">${d.hasil}</span></td>
       `;
-    }
-    if (d.sisa_kuota !== undefined) {
-      document.getElementById('quotaDisplay').textContent = `KUOTA: ${d.sisa_kuota}`;
     }
   }
 
   if (d.type === 'done') {
-    document.getElementById('progressText').textContent = `✓ Scan Complete — ${total} nodes processed`;
-    document.getElementById('btnProses').disabled = false;
-    document.getElementById('btnIcon').textContent = '▶';
+    document.getElementById('pText').textContent   = `✓ Selesai — ${d.total} rekening divalidasi`;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('pBar').style.width     = '100%';
+    document.getElementById('btnProses').disabled   = false;
+    document.getElementById('btnTxt').textContent   = '▶ Proses Sekarang';
+    showToast(`✓ Selesai! ${cM} Match · ${cD} Beda · ${cI} Invalid · Sisa kuota: ${currentQuota}`);
   }
 
   if (d.type === 'error') {
-    document.getElementById('progressText').textContent = '✗ ERROR: ' + d.message;
-    document.getElementById('btnProses').disabled = false;
+    document.getElementById('pText').textContent   = '✗ ERROR: ' + d.message;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btnProses').disabled   = false;
+    document.getElementById('btnTxt').textContent   = '▶ Proses Sekarang';
   }
 }
 
-function downloadTemplate() { window.location = '/template'; }
+// ── DOWNLOAD ────────────────────────────────────────────
 function download(fmt) {
-  if (!results.length) return;
-  const sortedResults = [...results].sort((a, b) => a[0] - b[0]);
+  if (!results.length) return showToast('Belum ada hasil!', true);
+  const sorted = [...results].sort((a, b) => a[0] - b[0]);
   fetch('/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: sortedResults, format: fmt })
+    body: JSON.stringify({ data: sorted, format: fmt })
   })
   .then(r => r.blob())
   .then(blob => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'validation_report.' + fmt;
+    a.download = 'hasil_validasi.' + fmt;
     a.click();
   });
+}
+
+// ── UTILS ───────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showToast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isErr ? 'var(--red)' : 'var(--green)';
+  t.style.color      = '#000';
+  t.style.display    = 'flex';
+  setTimeout(() => { t.style.display = 'none'; }, 5500);
 }
 </script>
 </body>
