@@ -11,227 +11,226 @@ import time
 
 app = Flask(__name__)
 
-API_KEY = os.getenv("APICOID_API_KEY")
-BASE_URL = "https://use.api.co.id/validation/bank"
+# ─── ENV ───────────────────────────────────────────────
+API_KEY   = os.getenv("APICOID_API_KEY", "")
+ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
-import redis
-REDIS_URL = os.getenv("REDIS_URL")
-r = None
-if REDIS_URL:
-    try:
-        # Menangani prefix redis:// jika diperlukan (Railway biasanya memberikan redis://)
-        r = redis.from_url(REDIS_URL, decode_responses=True)
-        r.ping()
-        print("[DB] Connected to Redis")
-    except Exception as e:
-        print(f"[DB ERROR] Redis failed to connect: {e}")
+# ─── ENDPOINT API ──────────────────────────────────────
+# Gunakan endpoint lama yang TERBUKTI BEKERJA (v1/bank/account)
+# dengan Authorization Bearer
+BASE_URL  = "https://api.api.co.id/v1/bank/account"
 
-WHITESPACE = re.compile(r'\s+')
+# ─── LICENSE / QUOTA SYSTEM ────────────────────────────
+# Simpan di Redis jika ada, fallback ke file JSON lokal
+CODES_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
+codes_lock  = threading.RLock()
 
-# --- Activation Code System ---
-CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'codes.json')
-codes_lock = threading.RLock()
+try:
+    import redis as _redis
+    REDIS_URL = os.getenv("REDIS_URL", "")
+    _r = _redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
+    if _r: _r.ping()
+except Exception:
+    _r = None
+
+print(f"[STORE] {'Redis' if _r else 'Local JSON'}")
 
 
-def load_codes():
-    """Fallback function for local file storage if Redis is not available."""
+def _load_codes() -> dict:
     try:
         if os.path.exists(CODES_FILE):
-            with open(CODES_FILE, 'r') as f:
+            with open(CODES_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
     return {}
 
 
-def save_codes(codes):
-    """Fallback function for local file storage."""
-    with open(CODES_FILE, 'w') as f:
-        json.dump(codes, f, indent=2)
+def _save_codes(data: dict):
+    with open(CODES_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 
-def get_quota(code):
-    """Ambil sisa kuota dari Redis atau local file."""
-    if r:
-        try:
-            val = r.get(f"code:{code}")
-            if val is not None:
-                return int(val)
-        except Exception as e:
-            print(f"[DB ERROR] get_quota: {e}")
-    
-    # Fallback to local
-    codes = load_codes()
-    quota = codes.get(code)
-    if isinstance(quota, bool):
-        quota = 0 if quota is True else 100
-    return quota
+def quota_get(code: str):
+    """Return kuota int, atau None jika kode tidak ada."""
+    code = code.strip().upper()
+    if _r:
+        v = _r.get(f"code:{code}")
+        if v is None:
+            return None
+        return int(v)
+    d = _load_codes()
+    if code not in d:
+        return None
+    return int(d[code])
 
 
-def update_quota(code, new_q):
-    """Update kuota ke Redis atau local file."""
-    if r:
-        try:
-            r.set(f"code:{code}", new_q)
-            return
-        except Exception as e:
-            print(f"[DB ERROR] update_quota: {e}")
-            
+def quota_set(code: str, val: int):
+    code = code.strip().upper()
+    if _r:
+        _r.set(f"code:{code}", val)
+    else:
+        with codes_lock:
+            d = _load_codes()
+            d[code] = val
+            _save_codes(d)
+
+
+def quota_decr(code: str) -> int:
+    """Potong 1 kuota, return sisa. Thread-safe."""
+    code = code.strip().upper()
+    if _r:
+        new = _r.decr(f"code:{code}")
+        if new < 0:
+            _r.set(f"code:{code}", 0)
+            new = 0
+        return new
     with codes_lock:
-        codes = load_codes()
-        codes[code] = new_q
-        save_codes(codes)
+        d = _load_codes()
+        cur = int(d.get(code, 0))
+        new = max(0, cur - 1)
+        d[code] = new
+        _save_codes(d)
+        return new
 
 
-def deduct_quota(code):
-    """Potong kuota 1 secara atomic menggunakan Redis DECR."""
-    if r:
-        try:
-            # Gunakan DECR untuk keamanan concurrency
-            new_q = r.decr(f"code:{code}")
-            return new_q
-        except Exception as e:
-            print(f"[DB ERROR] deduct_quota: {e}")
-            
-    # Fallback manual lock
-    with codes_lock:
-        current = get_quota(code)
-        if current is None: return 0
-        new_q = max(0, current - 1)
-        update_quota(code, new_q)
-        return new_q
+def quota_add(code: str, amount: int):
+    code = code.strip().upper()
+    cur = quota_get(code) or 0
+    quota_set(code, cur + amount)
 
 
-def migrate_to_redis():
-    """Pindahkan data dari codes.json ke Redis jika Redis masih kosong."""
-    if not r: return
-    try:
-        # Hanya migrasi jika Redis kosong (size 0)
-        if r.dbsize() == 0 and os.path.exists(CODES_FILE):
-            print("[DB] Migrating codes.json data to Redis...")
-            data = load_codes()
-            for code, quota in data.items():
-                if isinstance(quota, bool):
-                    quota = 0 if quota is True else 100
-                r.set(f"code:{code}", quota)
-            print(f"[DB] Migration success: {len(data)} codes moved.")
-    except Exception as e:
-        print(f"[DB ERROR] Migration failed: {e}")
+def quota_list() -> list:
+    if _r:
+        keys = _r.keys("code:*")
+        result = []
+        for k in sorted(keys):
+            code = k.replace("code:", "")
+            result.append({"code": code, "quota": int(_r.get(k) or 0)})
+        return result
+    d = _load_codes()
+    return [{"code": k, "quota": int(v)} for k, v in sorted(d.items())]
 
 
-# --- Helpers ---
-def clean(s):
+# ─── HELPER ────────────────────────────────────────────
+WHITESPACE = re.compile(r'\s+')
+
+
+def clean_str(s: str) -> str:
+    """Hapus spasi, uppercase untuk perbandingan nama."""
     return WHITESPACE.sub('', str(s).upper())
 
 
-def clean_rekening(val):
-    if val is None: return ""
+def clean_rekening(val) -> str:
+    """Pastikan nomor rekening jadi string digit bersih (handle scientific notation Excel)."""
     s = str(val).strip()
-    
-    # Jika dalam format scientific (E+), konversi hati-hati
-    if 'e' in s.lower() or 'E' in s.lower():
-        try:
+    if not s or s.lower() == 'nan':
+        return ""
+    # Handle scientific notation: 1.23E+10
+    try:
+        if 'e' in s.lower():
             from decimal import Decimal
             s = format(Decimal(s), 'f').split('.')[0]
-        except:
-            pass
-            
-    # Hapus semua karakter non-digit
+    except Exception:
+        pass
+    # Hapus titik desimal jika ada (misal: 123456789.0)
+    if '.' in s:
+        s = s.split('.')[0]
+    # Hanya digit
     s = re.sub(r'\D', '', s)
     return s
 
 
-def normalize_bank_code(bank_input):
-    """Bersihkan input bank dari user agar siap diolah di cek_rekening."""
-    code = str(bank_input).strip().lower()
-    code = WHITESPACE.sub('', code)
-    if code.startswith('bank_'):
-        code = code.replace('bank_', '', 1)
-    return code
+# ─── CORE API CALL ─────────────────────────────────────
 
-
-def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
+def cek_rekening(rekening: str, bank: str, session=None) -> dict:
     """
-    Cek rekening dengan Logika Robust: 
-    Mencoba format 'bank_xxx' and 'xxx' secara bergantian.
-    Kondisi sukses: API mengembalikan is_success=True dan data!=None.
+    Cek rekening ke api.api.co.id
+    Return dict:
+      {"account_name": str}  → sukses, nama ditemukan
+      {"error": str}         → gagal
     """
     if not API_KEY:
-        return {"is_error": True, "message": "API Key (APICOID_API_KEY) belum disetting di Railway Environment"}
+        return {"error": "APICOID_API_KEY belum di-set di Railway Variables"}
 
-    # Gunakan requests global jika session tidak diberikan (fallback)
-    caller = session if session else requests
-
-    bank_clean = normalize_bank_code(bank_code_raw)
-    # Daftar format: Coba format asli (misal: bca) dulu karena ini 99% yang benar sesuai panduan
-    formats_to_try = [bank_clean, f"bank_{bank_clean}"]
-    
+    caller  = session or requests
     headers = {
-        "x-api-co-id": API_KEY,
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-    for attempt, current_bank_code in enumerate(formats_to_try):
-        params = {
-            "bank_code": current_bank_code,
-            "account_number": str(rekening).strip(),
-            "account_name": str(nama_pengirim).strip()
-        }
+    # Bersihkan kode bank: huruf kecil, strip spasi
+    bank_clean = re.sub(r'\s+', '', bank.strip().lower())
 
+    payload = {
+        "bank": bank_clean,
+        "account_number": rekening
+    }
+
+    last_err = "Unknown error"
+
+    for attempt in range(3):  # Retry 3x
         try:
-            print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            # Coba GET dulu
-            res = caller.get(BASE_URL, params=params, headers=headers, timeout=(10, 30))
-            
-            # Jika GET tidak memuaskan (200 tapi data kosong), coba POST (beberapa bank lebih sensitif)
-            if res.status_code == 200:
-                temp_data = res.json()
-                if temp_data.get("is_success") and not temp_data.get("data"):
-                    print(f"[RETRY POST] {rekening} | {current_bank_code}")
-                    res = caller.post(BASE_URL, json=params, headers=headers, timeout=(10, 30))
-            
-            # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
+            print(f"[API] Attempt {attempt+1}: rekening={rekening} bank={bank_clean}")
+            res = caller.post(BASE_URL, json=payload, headers=headers, timeout=15)
+
+            print(f"[API] HTTP {res.status_code} | body={res.text[:200]}")
+
+            # Rate limited
             if res.status_code == 429:
-                print(f"[API 429] Rate limited on {rekening}")
+                time.sleep(2 ** attempt)
+                continue
+
+            # Auth error
+            if res.status_code in (401, 403):
+                return {"error": f"API Key salah / tidak aktif (HTTP {res.status_code})"}
+
+            # Saldo habis
+            if res.status_code == 402:
+                return {"error": "Saldo api.co.id habis"}
+
+            if res.status_code != 200:
+                last_err = f"HTTP {res.status_code}: {res.text[:100]}"
                 time.sleep(1)
                 continue
-            elif res.status_code in [500, 502, 503, 504]:
-                print(f"[API {res.status_code}] Server error on {rekening}")
-                continue
-
-            if res.status_code == 401 or res.status_code == 402:
-                msg = "API Key Salah / Saldo api.co.id Habis"
-                print(f"[AUTH ERROR] {msg} (HTTP {res.status_code})")
-                return {"is_error": True, "message": msg}
 
             data = res.json()
-            inner = data.get("data")
-            
-            if not data.get("is_success"):
-                msg = data.get("message", "Validation Failed")
-                print(f"[API FAIL] {rekening} | {current_bank_code} | Msg: {msg}")
-                # Jangan langsung return, coba format berikutnya (bank_xxx vs xxx)
-                last_msg = msg
-                continue
-            
-            # LOGIKA SUKSES
-            if data.get("is_success") and inner:
-                account_name = inner.get("account_name") or inner.get("name")
-                print(f"[API OK] Found: {account_name}")
-                return {
-                    "nama_bank": account_name,
-                    "is_valid": inner.get("is_valid", False),
-                    "score": inner.get("score", 0),
-                    "raw_data": data # Simpan respon mentah untuk debug
-                }
-            
+
+            # ── PARSE RESPONSE ──────────────────────────────
+            # Format 1 (v1/bank/account): {"success": true, "data": {"account_name": "..."}}
+            if data.get("success") and data.get("data"):
+                inner = data["data"]
+                name  = inner.get("account_name") or inner.get("name") or ""
+                if name:
+                    return {"account_name": name.strip()}
+                else:
+                    return {"error": "Rekening tidak ditemukan"}
+
+            # Format 2 fallback
+            if data.get("is_success") and data.get("data"):
+                inner = data["data"]
+                name  = inner.get("account_name") or inner.get("name") or ""
+                if name:
+                    return {"account_name": name.strip()}
+
+            # API success=false → rekening memang tidak ada
+            msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
+            return {"error": str(msg)}
+
+        except requests.exceptions.Timeout:
+            last_err = "Timeout"
+            time.sleep(1)
+            continue
         except Exception as e:
-            print(f"[API ERROR] {rekening} | {e}")
-            last_msg = f"Error: {str(e)}"
+            last_err = str(e)
+            time.sleep(1)
+            continue
 
-    print(f"[DONE] Semua format gagal untuk: {rekening}")
-    return {"is_error": True, "message": last_msg}
+    return {"error": last_err}
 
+
+# ─── PROSES 1 BARIS ────────────────────────────────────
 
 def proses_satu(args):
     i, row, session = args
@@ -240,82 +239,82 @@ def proses_satu(args):
     rekening = clean_rekening(row.get('rekening', ''))
     bank     = str(row.get('bank', '')).strip()
 
-    result = cek_rekening(rekening, bank, nama, session=session)
+    if not rekening:
+        return {
+            "type": "result", "index": i + 1,
+            "nama": nama, "rekening": "-", "bank": bank,
+            "nama_bank": "-", "hasil": "TIDAK VALID"
+        }
 
-    if result.get("is_error"):
-        # Jika ada error sistem (API key, saldo, dsb)
-        hasil = "ERROR"
-        nama_bank = f"[!] {result.get('message', 'API Error')}"
-    elif result.get("is_valid"):
-        # API bilang valid (score >= 7.0) — nama cocok
-        hasil = "MATCH"
-        nama_bank = nama.upper()
-    elif result.get("nama_bank"):
-        # API berhasil tapi nama tidak cocok (score < 7.0)
-        hasil = "TIDAK SAMA"
-        nama_bank = result["nama_bank"]
+    result = cek_rekening(rekening, bank, session)
+
+    if "error" in result:
+        # Bisa error API/jaringan atau rekening tidak ada
+        err_msg = result["error"]
+        # Jika error sistem (API key, saldo) → tandai ERROR
+        if any(x in err_msg.lower() for x in ["api key", "saldo", "aktif", "http 4"]):
+            hasil     = "ERROR"
+            nama_bank = f"[!] {err_msg}"
+        else:
+            hasil     = "TIDAK VALID"
+            nama_bank = "-"
     else:
-        # Rekening tidak ditemukan atau API mengembalikan data kosong
-        hasil = "TIDAK VALID"
-        # EXTREME DEBUG: Tampilkan seluruh JSON respon agar kita tahu alasan pastinya
-        import json
-        raw_debug = json.dumps(result.get("raw_data", result))
-        nama_bank = f"DEBUG_RESP: {raw_debug}"
+        nama_bank = result["account_name"]
+        if clean_str(nama) == clean_str(nama_bank):
+            hasil = "MATCH"
+        else:
+            hasil = "TIDAK SAMA"
 
     return {
-        "type": "result",
-        "index": i + 1,
-        "nama": nama,
-        "rekening": rekening,
-        "bank": bank,
+        "type":      "result",
+        "index":     i + 1,
+        "nama":      nama,
+        "rekening":  rekening,
+        "bank":      bank,
         "nama_bank": nama_bank,
-        "hasil": hasil
+        "hasil":     hasil
     }
 
 
-def generate_stream(records, code, start_quota):
+# ─── STREAM GENERATOR ──────────────────────────────────
+
+def generate_stream(records: list, code: str):
+    total = len(records)
+    yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
+
+    processed = 0
     try:
-        total = len(records)
-
-        yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
-
-        # Konfigurasi PRO: 20 workers (Lebih stabil untuk market launch)
-        # Menggunakan requests.Session untuk performa koneksi yang jauh lebih cepat
         with requests.Session() as session:
-            # Mengurangi workers ke 10 agar API tidak timeout/drop koneksi
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as exe:
                 futures = {
-                    executor.submit(proses_satu, (i, row, session)): i
+                    exe.submit(proses_satu, (i, row, session)): i
                     for i, row in enumerate(records)
                 }
-
-                processed_count = 0
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         data = future.result()
-                        processed_count += 1
-                        
-                        # POTONG KUOTA REAL-TIME
-                        new_q = deduct_quota(code)
-                        data['sisa_kuota'] = new_q
-                        
-                        print(f"[STREAM] Sent {processed_count}/{total} | Quota: {new_q}")
-                        yield f"data: {json.dumps(data)}\n\n"
-                        
-                        if new_q <= 0:
-                            print(f"[CRITICAL] Quota exhausted for {code}")
-                            yield f"data: {json.dumps({'type':'error','message':'Kuota telah habis di tengah proses.'})}\n\n"
-                            break
-                            
                     except Exception as e:
-                        print(f"[EXE ERROR] {e}")
-                        yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+                        data = {
+                            "type": "result",
+                            "index": futures[future] + 1,
+                            "nama": "-", "rekening": "-", "bank": "-",
+                            "nama_bank": str(e), "hasil": "ERROR"
+                        }
 
-        yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': start_quota - total})}\n\n"
+                    # Potong kuota 1 per hasil
+                    sisa = quota_decr(code)
+                    data["sisa_kuota"] = sisa
+                    processed += 1
+
+                    yield f"data: {json.dumps(data)}\n\n"
 
     except Exception as e:
         yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
+    yield f"data: {json.dumps({'type':'done','total':total,'processed':processed})}\n\n"
+
+
+# ─── ROUTES ────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -326,51 +325,46 @@ def index():
 def verify_code():
     body = request.json or {}
     code = str(body.get('code', '')).strip()
-
     if not code:
         return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
 
-    quota = get_quota(code)
-    if quota is None:
+    q = quota_get(code)
+    if q is None:
         return jsonify({"valid": False, "message": "Kode tidak ditemukan"}), 403
+    if q <= 0:
+        return jsonify({"valid": False, "message": "Kuota habis. Kode tidak dapat digunakan lagi."}), 403
 
-    if quota <= 0:
-        return jsonify({"valid": False, "message": "Kuota kode aktivasi ini sudah habis (0)"}), 403
-
-    return jsonify({"valid": True, "quota": quota, "message": "Kode valid, selamat menggunakan!"})
+    return jsonify({"valid": True, "quota": q, "message": "Kode valid!"})
 
 
 @app.route('/stream', methods=['POST'])
 def stream():
-    code = request.form.get('code', '')
-    if 'file' not in request.files:
-        return jsonify({"error": "Tidak ada file"}), 400
+    code = str(request.form.get('code', '')).strip().upper()
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "File kosong"}), 400
+    # Validasi kode + kuota
+    q = quota_get(code)
+    if q is None:
+        return jsonify({"error": "Kode tidak ditemukan"}), 403
+    if q <= 0:
+        return jsonify({"error": "Kuota habis. Kode tidak bisa digunakan lagi."}), 403
+
+    file = request.files.get('file')
+    if not file:
+        return jsonify({"error": "File tidak ada"}), 400
 
     try:
         file_data = io.BytesIO(file.read())
         df = pd.read_excel(file_data)
         df.columns = [str(c).strip().lower() for c in df.columns]
         records = df.to_dict('records')
-        total = len(records)
     except Exception as e:
-        return jsonify({"error": "Gagal membaca Excel: " + str(e)}), 400
+        return jsonify({"error": f"Gagal baca Excel: {e}"}), 400
 
-    quota = get_quota(code)
-    if quota is None:
-        return jsonify({"error": "Kode lisensi tidak valid / sesi kadaluarsa"}), 403
-            
-    if quota <= 0:
-        return jsonify({"error": "Kuota sudah habis (0). Silakan isi ulang kuota Anda."}), 403
-            
-    start_quota = quota
+    if len(records) > q:
+        return jsonify({"error": f"Kuota tidak cukup. Kuota: {q}, Data: {len(records)}"}), 403
 
-    # Lanjutkan proses jika kuota aman
     return Response(
-        generate_stream(records, code, start_quota),
+        generate_stream(records, code),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
@@ -383,37 +377,15 @@ def stream():
 @app.route('/template')
 def download_template():
     df = pd.DataFrame({
-        "nama": ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
+        "nama":     ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
         "rekening": ["2840446855", "7330699393", "1330024362634", "0987654321"],
-        "bank": ["BCA", "BCA", "MANDIRI", "BRI"]
+        "bank":     ["bca", "bca", "mandiri", "bri"]
     })
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name='template.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-@app.route('/supported-banks')
-def supported_banks():
-    try:
-        res = requests.get("https://use.api.co.id/validation/bank/available", headers={"x-api-co-id": API_KEY}, timeout=15)
-        if res.status_code == 200 and res.json().get("is_success"):
-            banks = res.json()["data"]["banks"]
-            df = pd.DataFrame(banks)
-            df.index = df.index + 1
-            df.columns = ["Nama Bank Resmi", "Kode Asli API"]
-            # Berikan kolom panduan ketikan yang gampang di-copy
-            df["Ketikan di Excel (Acuan)"] = df["Kode Asli API"].str.replace("bank_", "", n=1).str.upper()
-            
-            buf = io.BytesIO()
-            df.to_excel(buf, index=False)
-            buf.seek(0)
-            return send_file(buf, as_attachment=True, download_name='Daftar_Bank_Support.xlsx',
-                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e:
-        print("Error fetching supported banks:", e)
-    return "Gagal mengambil daftar bank dari API. Pastikan API key valid.", 500
 
 
 @app.route('/download', methods=['POST'])
@@ -423,15 +395,13 @@ def download():
     fmt  = body.get('format', 'xlsx')
 
     cols = ['No', 'Nama', 'Rekening', 'Bank', 'Nama Bank', 'Hasil']
-    df = pd.DataFrame(raw, columns=cols)
-
-    buf = io.BytesIO()
+    df   = pd.DataFrame(raw, columns=cols)
+    buf  = io.BytesIO()
 
     if fmt == 'csv':
         df.to_csv(buf, index=False, sep=',', encoding='utf-8-sig')
         buf.seek(0)
-        return send_file(buf, as_attachment=True, download_name='hasil.csv',
-                         mimetype='text/csv')
+        return send_file(buf, as_attachment=True, download_name='hasil.csv', mimetype='text/csv')
     else:
         df.to_excel(buf, index=False)
         buf.seek(0)
@@ -439,9 +409,189 @@ def download():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+# ─── ADMIN API ─────────────────────────────────────────
+
+def _admin_check():
+    return request.headers.get('X-Admin-Secret', '') == ADMIN_PWD
+
+
+@app.route('/admin/add', methods=['POST'])
+def admin_add():
+    if not _admin_check():
+        return jsonify({"ok": False, "msg": "Unauthorized"}), 401
+    body    = request.json or {}
+    code    = str(body.get('code', '')).strip().upper()
+    amount  = int(body.get('quota', 100))
+    if not code:
+        return jsonify({"ok": False, "msg": "Kode kosong"}), 400
+    quota_add(code, amount)
+    return jsonify({"ok": True, "code": code, "quota": quota_get(code)})
+
+
+@app.route('/admin/list', methods=['GET'])
+def admin_list():
+    if not _admin_check():
+        return jsonify({"ok": False, "msg": "Unauthorized"}), 401
+    data = quota_list()
+    return jsonify({"ok": True, "codes": data, "total": len(data)})
+
+
+@app.route('/admin/set', methods=['POST'])
+def admin_set():
+    """Set kuota spesifik (override)."""
+    if not _admin_check():
+        return jsonify({"ok": False, "msg": "Unauthorized"}), 401
+    body   = request.json or {}
+    code   = str(body.get('code', '')).strip().upper()
+    amount = int(body.get('quota', 0))
+    if not code:
+        return jsonify({"ok": False, "msg": "Kode kosong"}), 400
+    quota_set(code, amount)
+    return jsonify({"ok": True, "code": code, "quota": amount})
+
+
+@app.route('/admin/delete', methods=['DELETE'])
+def admin_delete():
+    if not _admin_check():
+        return jsonify({"ok": False, "msg": "Unauthorized"}), 401
+    body = request.json or {}
+    code = str(body.get('code', '')).strip().upper()
+    if _r:
+        _r.delete(f"code:{code}")
+    else:
+        with codes_lock:
+            d = _load_codes()
+            d.pop(code, None)
+            _save_codes(d)
+    return jsonify({"ok": True, "msg": f"Kode {code} dihapus"})
+
+
+# ─── ADMIN PANEL (UI) ──────────────────────────────────
+@app.route('/admin')
+def admin_panel():
+    return '''<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Admin Panel – License Manager</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#0b0e1a; color:#e2e8f0; font-family:system-ui,sans-serif; padding:30px; }
+h1 { color:#00e5ff; font-size:22px; margin-bottom:6px; }
+.sub { color:#64748b; font-size:12px; margin-bottom:30px; }
+.card { background:#0d1117; border:1px solid #1e2d45; border-radius:12px; padding:24px; margin-bottom:20px; }
+h3 { color:#00e5ff; font-size:13px; letter-spacing:1px; text-transform:uppercase; margin-bottom:16px; }
+input, select { background:#111827; border:1px solid #1e2d45; color:#fff; padding:10px 14px;
+  border-radius:8px; font-size:14px; width:100%; margin-bottom:10px; }
+button { padding:10px 20px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
+.btn-cyan { background:#00e5ff; color:#000; }
+.btn-red  { background:#ff4d6d; color:#fff; }
+.btn-gray { background:#1e2d45; color:#e2e8f0; }
+.row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+.row input { flex:1; margin-bottom:0; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:#111827; color:#00e5ff; padding:10px 14px; text-align:left; font-size:11px; letter-spacing:1px; }
+td { padding:10px 14px; border-bottom:1px solid #1e2d45; font-family:monospace; }
+.badge { padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; }
+.bgreen { background:rgba(0,255,163,.15); color:#00ffa3; }
+.bred   { background:rgba(255,77,109,.15); color:#ff4d6d; }
+#msg { margin-top:10px; font-size:13px; min-height:20px; }
+#secret { margin-bottom:20px; }
+</style>
+</head>
+<body>
+<h1>🔐 License Manager</h1>
+<div class="sub">Panel admin untuk kelola kode lisensi</div>
+
+<div class="card">
+  <h3>Authentication</h3>
+  <div class="row">
+    <input type="password" id="secret" placeholder="Admin Secret / Password">
+    <button class="btn-cyan" onclick="loadList()">Login & Lihat Kode</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Tambah / Top-up Kode</h3>
+  <div class="row">
+    <input type="text" id="newCode" placeholder="Kode (contoh: MANZ-ABC1)" style="text-transform:uppercase">
+    <input type="number" id="newQuota" placeholder="Jumlah kuota" value="100" style="max-width:160px">
+    <button class="btn-cyan" onclick="addCode()">Tambah / Top-up</button>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <h3>Daftar Kode Aktif</h3>
+  <button class="btn-gray" onclick="loadList()" style="margin-bottom:16px; font-size:12px;">↻ Refresh</button>
+  <table>
+    <thead><tr><th>#</th><th>Kode</th><th>Kuota Sisa</th><th>Status</th><th>Aksi</th></tr></thead>
+    <tbody id="tbl"></tbody>
+  </table>
+</div>
+
+<script>
+function secret() { return document.getElementById('secret').value; }
+function msg(t, ok) {
+  const el = document.getElementById('msg');
+  el.textContent = t;
+  el.style.color = ok ? '#00ffa3' : '#ff4d6d';
+}
+
+async function loadList() {
+  const res = await fetch('/admin/list', { headers: { 'X-Admin-Secret': secret() } });
+  const data = await res.json();
+  if (!data.ok) return msg(data.msg || 'Unauthorized', false);
+  const tbody = document.getElementById('tbl');
+  tbody.innerHTML = '';
+  data.codes.forEach((c, i) => {
+    const ok = c.quota > 0;
+    tbody.innerHTML += `<tr>
+      <td>${i+1}</td>
+      <td><b>${c.code}</b></td>
+      <td>${c.quota}</td>
+      <td><span class="badge ${ok?'bgreen':'bred'}">${ok?'AKTIF':'HABIS'}</span></td>
+      <td><button class="btn-red" style="padding:4px 12px;font-size:11px" onclick="delCode('${c.code}')">Hapus</button></td>
+    </tr>`;
+  });
+  msg(`${data.total} kode ditemukan`, true);
+}
+
+async function addCode() {
+  const code = document.getElementById('newCode').value.trim().toUpperCase();
+  const quota = parseInt(document.getElementById('newQuota').value);
+  if (!code || !quota) return msg('Isi kode dan kuota!', false);
+  const res = await fetch('/admin/add', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', 'X-Admin-Secret': secret() },
+    body: JSON.stringify({ code, quota })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    msg(`✓ Kode ${data.code} | Sisa kuota: ${data.quota}`, true);
+    loadList();
+  } else {
+    msg(data.msg || 'Gagal', false);
+  }
+}
+
+async function delCode(code) {
+  if (!confirm('Hapus kode ' + code + '?')) return;
+  const res = await fetch('/admin/delete', {
+    method: 'DELETE',
+    headers: { 'Content-Type':'application/json', 'X-Admin-Secret': secret() },
+    body: JSON.stringify({ code })
+  });
+  const data = await res.json();
+  msg(data.ok ? `✓ ${code} dihapus` : data.msg, data.ok);
+  if (data.ok) loadList();
+}
+</script>
+</body>
+</html>'''
+
+
 if __name__ == '__main__':
-    # Jalankan migrasi satu kali saat startup
-    migrate_to_redis()
-    
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
