@@ -30,7 +30,7 @@ WHITESPACE = re.compile(r'\s+')
 
 # --- Activation Code System ---
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'codes.json')
-codes_lock = threading.Lock()
+codes_lock = threading.RLock()
 
 
 def load_codes():
@@ -145,15 +145,18 @@ def normalize_bank_code(bank_input):
     return code
 
 
-def cek_rekening(rekening, bank_code_raw, nama_pengirim):
+def cek_rekening(rekening, bank_code_raw, nama_pengirim, session=None):
     """
     Cek rekening dengan Logika Robust: 
-    Mencoba format 'bank_xxx' dan 'xxx' secara bergantian.
+    Mencoba format 'bank_xxx' and 'xxx' secara bergantian.
     Kondisi sukses: API mengembalikan is_success=True dan data!=None.
     """
     if not API_KEY:
         print("[ERROR] API_KEY tidak terkonfigurasi (None)")
         return None
+
+    # Gunakan requests global jika session tidak diberikan (fallback)
+    caller = session if session else requests
 
     bank_clean = normalize_bank_code(bank_code_raw)
     # Daftar format: Coba format asli (misal: bca) dulu karena ini 99% yang benar sesuai panduan
@@ -173,13 +176,15 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
         try:
             print(f"[API REQ] {rekening} | Try: {current_bank_code}")
-            res = requests.get(BASE_URL, params=params, headers=headers, timeout=4)
+            res = caller.get(BASE_URL, params=params, headers=headers, timeout=(5, 10))
             
             # Jika rate limit (429), tunggu sebentar. Jika error server (5xx), langsung lanjut.
             if res.status_code == 429:
+                print(f"[API 429] Rate limited on {rekening}")
                 time.sleep(1)
                 continue
             elif res.status_code in [500, 502, 503, 504]:
+                print(f"[API {res.status_code}] Server error on {rekening}")
                 continue
 
             if res.status_code == 401 or res.status_code == 402:
@@ -190,7 +195,6 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
             inner = data.get("data")
             
             # LOGIKA SUKSES: Jika API merespon sukses dan ada data objeknya
-            # Kami tidak lagi mewajibkan score > 0 agar tidak terjadi loop tak berujung jika account memang tidak ketemu
             if data.get("is_success") and inner:
                 print(f"[API OK] Found: {inner.get('name')} | Score: {inner.get('score')}")
                 return {
@@ -204,20 +208,19 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
             print(f"[API FAIL] {current_bank_code}: {msg}")
             
         except Exception as e:
-            print(f"[API ERROR] {e}")
+            print(f"[API ERROR] {rekening} | {e}")
 
     print(f"[DONE] Semua format gagal untuk: {rekening}")
     return None
 
 
-def proses_satu(args):
-    i, row = args
+    i, row, session = args
 
     nama     = str(row.get('nama', '')).strip()
     rekening = clean_rekening(row.get('rekening', ''))
     bank     = str(row.get('bank', '')).strip()
 
-    result = cek_rekening(rekening, bank, nama)
+    result = cek_rekening(rekening, bank, nama, session=session)
 
     if result is None:
         # API call gagal total (timeout, connection error, dsb.)
@@ -255,32 +258,36 @@ def generate_stream(records, code, start_quota):
 
         yield f"data: {json.dumps({'type':'start','total':total})}\n\n"
 
-        # Konfigurasi TURBO: 50 workers
-        # Sangat cepat, memproses hingga 50 rekening sekaligus.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-            futures = {
-                executor.submit(proses_satu, (i, row)): i
-                for i, row in enumerate(records)
-            }
+        # Konfigurasi PRO: 20 workers (Lebih stabil untuk market launch)
+        # Menggunakan requests.Session untuk performa koneksi yang jauh lebih cepat
+        with requests.Session() as session:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                futures = {
+                    executor.submit(proses_satu, (i, row, session)): i
+                    for i, row in enumerate(records)
+                }
 
-            processed_count = 0
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    data = future.result()
-                    processed_count += 1
-                    
-                    # POTONG KUOTA REAL-TIME
-                    new_q = deduct_quota(code)
-                    data['sisa_kuota'] = new_q
+                processed_count = 0
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        data = future.result()
+                        processed_count += 1
                         
-                    yield f"data: {json.dumps(data)}\n\n"
-                    
-                    if new_q <= 0:
-                        yield f"data: {json.dumps({'type':'error','message':'Kuota telah habis di tengah proses.'})}\n\n"
-                        break
+                        # POTONG KUOTA REAL-TIME
+                        new_q = deduct_quota(code)
+                        data['sisa_kuota'] = new_q
                         
-                except Exception as e:
-                    yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+                        print(f"[STREAM] Sent {processed_count}/{total} | Quota: {new_q}")
+                        yield f"data: {json.dumps(data)}\n\n"
+                        
+                        if new_q <= 0:
+                            print(f"[CRITICAL] Quota exhausted for {code}")
+                            yield f"data: {json.dumps({'type':'error','message':'Kuota telah habis di tengah proses.'})}\n\n"
+                            break
+                            
+                    except Exception as e:
+                        print(f"[EXE ERROR] {e}")
+                        yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
 
         yield f"data: {json.dumps({'type':'done','total':total, 'sisa_kuota': start_quota - total})}\n\n"
 
