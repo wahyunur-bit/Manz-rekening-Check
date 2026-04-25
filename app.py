@@ -78,7 +78,7 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
     }
 
     for attempt, current_bank_code in enumerate(formats_to_try):
-        payload = {
+        params = {
             "bank_code": current_bank_code,
             "account_number": str(rekening).strip(),
             "account_name": str(nama_pengirim).strip()
@@ -86,11 +86,17 @@ def cek_rekening(rekening, bank_code_raw, nama_pengirim):
 
         try:
             print(f"[API REQ] Try {attempt+1}: {current_bank_code} | rek: {rekening}")
-            res = requests.post(BASE_URL, json=payload, headers=headers, timeout=15)
+            # MENGGUNAKAN GET SESUAI DOKUMENTASI TERBARU api.co.id
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=15)
             
             if res.status_code in [429, 500, 502, 503, 504]:
                 time.sleep(3)
                 continue
+
+            # Jika API Key salah atau saldo habis, tampilkan di log
+            if res.status_code == 401 or res.status_code == 402:
+                print(f"[AUTH ERROR] API Key bermasalah atau Saldo api.co.id Habis (HTTP {res.status_code})")
+                return None
 
             data = res.json()
             inner = data.get("data")
