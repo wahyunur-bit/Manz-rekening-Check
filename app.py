@@ -16,9 +16,8 @@ API_KEY   = os.getenv("APICOID_API_KEY", "")
 ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
 # ─── ENDPOINT API ──────────────────────────────────────
-# Gunakan endpoint lama yang TERBUKTI BEKERJA (v1/bank/account)
-# dengan Authorization Bearer
-BASE_URL  = "https://api.api.co.id/v1/bank/account"
+# Gunakan endpoint resmi use.api.co.id untuk stabilitas terbaik
+BASE_URL  = "https://use.api.co.id/validation"
 
 # ─── LICENSE / QUOTA SYSTEM ────────────────────────────
 # Simpan di Redis jika ada, fallback ke file JSON lokal
@@ -145,7 +144,7 @@ def clean_rekening(val) -> str:
 
 def cek_rekening(rekening: str, bank: str, session=None) -> dict:
     """
-    Cek rekening ke api.api.co.id
+    Cek rekening ke api.api.co.id / use.api.co.id
     Return dict:
       {"account_name": str}  → sukses, nama ditemukan
       {"error": str}         → gagal
@@ -154,17 +153,20 @@ def cek_rekening(rekening: str, bank: str, session=None) -> dict:
         return {"error": "APICOID_API_KEY belum di-set di Railway Variables"}
 
     caller  = session or requests
+    
+    # Gunakan x-api-co-id sesuai spesifikasi terbaru (sama dengan fetch_banks.py)
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "x-api-co-id": API_KEY,
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-    # Bersihkan kode bank: huruf kecil, strip spasi
+    # Bersihkan kode bank
     bank_clean = re.sub(r'\s+', '', bank.strip().lower())
 
+    # Payload: gunakan bank_code & account_number
     payload = {
-        "bank": bank_clean,
+        "bank_code": bank_clean,
         "account_number": rekening
     }
 
@@ -175,7 +177,7 @@ def cek_rekening(rekening: str, bank: str, session=None) -> dict:
             print(f"[API] Attempt {attempt+1}: rekening={rekening} bank={bank_clean}")
             res = caller.post(BASE_URL, json=payload, headers=headers, timeout=15)
 
-            print(f"[API] HTTP {res.status_code} | body={res.text[:200]}")
+            print(f"[API] HTTP {res.status_code} | body={res.text[:250]}")
 
             # Rate limited
             if res.status_code == 429:
@@ -191,33 +193,48 @@ def cek_rekening(rekening: str, bank: str, session=None) -> dict:
                 return {"error": "Saldo api.co.id habis"}
 
             if res.status_code != 200:
-                last_err = f"HTTP {res.status_code}: {res.text[:100]}"
+                # Coba parsing error message jika ada
+                try:
+                    e_data = res.json()
+                    last_err = e_data.get("message") or e_data.get("msg") or f"HTTP {res.status_code}"
+                except:
+                    last_err = f"HTTP {res.status_code}: {res.text[:100]}"
+                
                 time.sleep(1)
                 continue
 
             data = res.json()
 
-            # ── PARSE RESPONSE ──────────────────────────────
-            # Format 1 (v1/bank/account): {"success": true, "data": {"account_name": "..."}}
-            if data.get("success") and data.get("data"):
+            # ── PARSE RESPONSE (MULTI-FORMAT) ────────────────
+            
+            # 1. Format Flat (Terbaru): {"is_valid": true, "name": "...", "score": 10}
+            is_valid = data.get("is_valid") or data.get("valid") or data.get("success") or data.get("is_success")
+            
+            # Ambil nama dari berbagai kemungkinan key
+            name = data.get("name") or data.get("account_name") or data.get("account_holder_name")
+            
+            # 2. Format Nested: {"data": {"name": "..."}}
+            if not name and isinstance(data.get("data"), dict):
                 inner = data["data"]
-                name  = inner.get("account_name") or inner.get("name") or ""
-                if name:
-                    return {"account_name": name.strip()}
-                else:
-                    return {"error": "Rekening tidak ditemukan"}
+                name = inner.get("name") or inner.get("account_name") or inner.get("account_holder_name")
+                if is_valid is None:
+                    is_valid = inner.get("is_valid") or inner.get("success")
 
-            # Format 2 fallback
-            if data.get("is_success") and data.get("data"):
-                inner = data["data"]
-                name  = inner.get("account_name") or inner.get("name") or ""
-                if name:
-                    return {"account_name": name.strip()}
+            # Jika ketemu nama, anggap sukses
+            if name:
+                return {"account_name": str(name).strip()}
 
-            # API success=false → rekening memang tidak ada
-            msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
-            return {"error": str(msg)}
+            # Jika is_valid explicitly false atau memang tidak ada nama
+            if is_valid is False:
+                msg = data.get("message") or data.get("msg") or "Rekening tidak ditemukan"
+                return {"error": str(msg)}
 
+            # Fallback jika tidak ada name tapi is_valid true (aneh tapi mungkin)
+            if is_valid:
+                return {"error": "Data ditemukan tapi nama kosong"}
+
+            last_err = data.get("message") or data.get("msg") or "Format respons tidak dikenali"
+            
         except requests.exceptions.Timeout:
             last_err = "Timeout"
             time.sleep(1)
@@ -249,20 +266,26 @@ def proses_satu(args):
     result = cek_rekening(rekening, bank, session)
 
     if "error" in result:
-        # Bisa error API/jaringan atau rekening tidak ada
         err_msg = result["error"]
-        # Jika error sistem (API key, saldo) → tandai ERROR
-        if any(x in err_msg.lower() for x in ["api key", "saldo", "aktif", "http 4"]):
+        
+        # List kata kunci error sistem yang harus ditandai sebagai ERROR (warna merah gelap)
+        system_errors = ["api key", "saldo", "aktif", "http 4", "timeout", "limit"]
+        
+        if any(x in err_msg.lower() for x in system_errors):
             hasil     = "ERROR"
             nama_bank = f"[!] {err_msg}"
         else:
+            # Jika hanya "rekening tidak ditemukan", statusnya TIDAK VALID
             hasil     = "TIDAK VALID"
             nama_bank = "-"
     else:
         nama_bank = result["account_name"]
+        
+        # Perbandingan nama: gunakan clean_str agar spasi & case tidak jadi masalah
         if clean_str(nama) == clean_str(nama_bank):
             hasil = "MATCH"
         else:
+            # Jika nama dari bank ditemukan tapi beda dengan input, statusnya TIDAK SAMA
             hasil = "TIDAK SAMA"
 
     return {
