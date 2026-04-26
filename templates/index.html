@@ -4,959 +4,306 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Rekening Validator Pro</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg: #02040a;
-  --surface: rgba(13,17,23,0.8);
-  --surface2: rgba(20,26,38,0.9);
-  --border: rgba(0,229,255,0.12);
-  --border-h: rgba(0,229,255,0.35);
-  --accent: #00e5ff;
-  --accent2: #7c3aed;
-  --green: #00ffa3;
-  --yellow: #fbbf24;
-  --red: #ff4d6d;
-  --text: #e2e8f0;
-  --muted: #64748b;
-  --mono: 'JetBrains Mono', monospace;
-  --display: 'Orbitron', sans-serif;
-  --body: 'Syne', sans-serif;
+:root{
+  --bg:#02040a;--s1:rgba(13,17,23,.88);--s2:rgba(20,26,38,.95);
+  --b:rgba(0,229,255,.12);--bh:rgba(0,229,255,.32);
+  --c:#00e5ff;--c2:#7c3aed;--g:#00ffa3;--y:#fbbf24;--r:#ff4d6d;
+  --t:#e2e8f0;--m:#64748b;
+  --fn:'Syne',sans-serif;--fd:'Orbitron',sans-serif;--fm:'JetBrains Mono',monospace;
+  --rad:18px;
 }
-
-* { margin:0; padding:0; box-sizing:border-box; }
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--body);
-  min-height: 100vh;
-  overflow-x: hidden;
-}
-
-/* ── CANVAS BG ── */
-#cvs { position:fixed; inset:0; z-index:0; pointer-events:none; }
-
-/* ── CONTAINER ── */
-.wrap {
-  position: relative;
-  z-index: 1;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 40px 20px 80px;
-}
-
-/* ── GATE ── */
-#gate {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-}
-
-.gate-brand {
-  font-family: var(--display);
-  font-size: clamp(2rem,6vw,3.5rem);
-  font-weight: 800;
-  background: linear-gradient(135deg, #fff 0%, var(--accent) 55%, var(--accent2) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-align: center;
-  margin-bottom: 8px;
-  filter: drop-shadow(0 0 25px rgba(0,229,255,0.2));
-}
-
-.gate-sub {
-  font-family: var(--mono);
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  text-align: center;
-  margin-bottom: 48px;
-}
-
-.gate-box {
-  width: 100%;
-  max-width: 460px;
-  background: var(--surface);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  padding: 40px 36px;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.gate-box::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 15%; right: 15%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: .5;
-}
-
-.gate-icon { font-size: 52px; margin-bottom: 20px; display: block; }
-
-.gate-title {
-  font-family: var(--display);
-  font-size: 14px;
-  letter-spacing: 2px;
-  color: var(--accent);
-  margin-bottom: 6px;
-}
-
-.gate-desc {
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 28px;
-  line-height: 1.6;
-}
-
-.code-input {
-  width: 100%;
-  background: rgba(0,0,0,0.3);
-  border: 1.5px solid var(--border);
-  border-radius: 12px;
-  color: #fff;
-  font-family: var(--mono);
-  font-size: 20px;
-  text-align: center;
-  letter-spacing: 5px;
-  padding: 16px;
-  outline: none;
-  transition: all .3s;
-  margin-bottom: 16px;
-  text-transform: uppercase;
-}
-
-.code-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(0,229,255,.08), 0 0 20px rgba(0,229,255,.15);
-}
-
-.gate-err {
-  color: var(--red);
-  font-family: var(--mono);
-  font-size: 12px;
-  margin-top: 12px;
-  min-height: 18px;
-  display: none;
-}
-
-/* ── BUTTONS ── */
-.btn {
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  padding: 13px 24px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all .25s;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-}
-
-.btn-cyan {
-  background: var(--accent);
-  color: #000;
-  border-color: var(--accent);
-  box-shadow: 0 0 20px rgba(0,229,255,.25);
-}
-
-.btn-cyan:hover:not(:disabled) {
-  box-shadow: 0 0 35px rgba(0,229,255,.45);
-  transform: translateY(-2px);
-}
-
-.btn-cyan:disabled {
-  opacity: .45;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.btn-ghost {
-  background: rgba(255,255,255,.03);
-  color: var(--text);
-  border-color: var(--border);
-}
-
-.btn-ghost:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(0,229,255,.04);
-}
-
-.btn-green {
-  background: rgba(0,255,163,.06);
-  color: var(--green);
-  border-color: rgba(0,255,163,.2);
-}
-
-.btn-green:hover {
-  background: rgba(0,255,163,.12);
-  border-color: var(--green);
-  box-shadow: 0 0 20px rgba(0,255,163,.2);
-}
-
-/* ── MAIN APP ── */
-#app { display:none; }
-
-/* ── TOP BAR ── */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 40px;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.brand {
-  font-family: var(--display);
-  font-size: clamp(1.4rem,3vw,2.2rem);
-  font-weight: 800;
-  background: linear-gradient(135deg, #fff, var(--accent));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.quota-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(0,229,255,.06);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 8px 18px;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.quota-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--green);
-  animation: pls 2s ease-in-out infinite;
-}
-
-@keyframes pls {
-  0%,100% { opacity:1; transform:scale(1); }
-  50% { opacity:.4; transform:scale(.7); }
-}
-
-.quota-num { color: var(--accent); font-weight: 600; font-size: 14px; }
-
-/* ── CARD ── */
-.card {
-  background: var(--surface);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 32px;
-  margin-bottom: 24px;
-  position: relative;
-  overflow: hidden;
-  transition: border-color .3s, box-shadow .3s;
-}
-
-.card:hover {
-  border-color: var(--border-h);
-  box-shadow: 0 20px 60px rgba(0,0,0,.4), 0 0 20px rgba(0,229,255,.05);
-}
-
-.card::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 20%; right: 20%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: .25;
-}
-
-/* ── UPLOAD ── */
-.upload-zone {
-  border: 2px dashed var(--border);
-  border-radius: 16px;
-  padding: 50px 30px;
-  text-align: center;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: all .35s;
-}
-
-.upload-zone input {
-  position: absolute; inset: 0;
-  opacity: 0; cursor: pointer;
-  width: 100%; height: 100%; z-index: 5;
-}
-
-.upload-zone:hover, .upload-zone.drag {
-  border-color: var(--accent);
-  background: rgba(0,229,255,.04);
-}
-
-.upload-icon { font-size: 48px; margin-bottom: 14px; display: block; }
-.upload-title { font-family: var(--display); font-size: 15px; letter-spacing: 1px; color: var(--text); }
-.upload-hint { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
-
-.file-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(0,229,255,.08);
-  border: 1px solid rgba(0,229,255,.2);
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--accent);
-  margin-top: 14px;
-}
-
-.actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 24px;
-  flex-wrap: wrap;
-}
-
-/* ── QUOTA WARNING ── */
-.quota-warn {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  background: rgba(251,191,36,.06);
-  border: 1px solid rgba(251,191,36,.2);
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--yellow);
-  margin-top: 14px;
-}
-
-/* ── PROGRESS ── */
-#pArea { display:none; margin-top:24px; }
-
-.p-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.p-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
-}
-
-.spinner {
-  width: 14px; height: 14px;
-  border: 2px solid rgba(0,229,255,.2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
-}
-
-@keyframes spin { to { transform:rotate(360deg); } }
-
-.p-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-
-.pbar-wrap {
-  background: rgba(255,255,255,.04);
-  border-radius: 100px;
-  height: 7px;
-  overflow: hidden;
-  margin-bottom: 14px;
-}
-
-.pbar {
-  height: 100%;
-  border-radius: 100px;
-  background: linear-gradient(90deg, var(--accent2), var(--accent), var(--green));
-  background-size: 200% 100%;
-  animation: pglow 2s linear infinite;
-  transition: width .4s ease;
-  width: 0%;
-}
-
-@keyframes pglow {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-.stats {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.stat {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 5px 12px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.sdot { width:7px; height:7px; border-radius:50%; }
-
-/* ── TABLE ── */
-.t-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.t-title {
-  font-family: var(--display);
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: var(--accent);
-  text-transform: uppercase;
-}
-
-.dl-group { display:flex; gap:8px; }
-
-.table-wrap { overflow-x:auto; border-radius:12px; }
-
-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
-}
-
-thead tr { background: rgba(0,229,255,.04); }
-
-th {
-  padding: 13px 16px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--accent);
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-td {
-  padding: 13px 16px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: #94a3b8;
-  border-bottom: 1px solid rgba(30,45,69,.4);
-  white-space: nowrap;
-}
-
-tbody tr {
-  animation: rowIn .35s ease forwards;
-  opacity: 0;
-  transform: translateX(-8px);
-}
-
-@keyframes rowIn { to { opacity:1; transform:translateX(0); } }
-
-tbody tr:hover { background: rgba(0,229,255,.025); }
-
-td:nth-child(2) { color: var(--text); font-family: var(--body); font-weight: 600; }
-
-/* placeholder rows */
-.row-pending td { color: var(--muted); font-style: italic; animation: none; opacity: 1; transform: none; }
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--mono);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-.bm { background:rgba(0,255,163,.1); color:var(--green); border:1px solid rgba(0,255,163,.25); }
-.bd { background:rgba(251,191,36,.1); color:var(--yellow); border:1px solid rgba(251,191,36,.25); }
-.bi { background:rgba(255,77,109,.1); color:var(--red); border:1px solid rgba(255,77,109,.2); }
-.be { background:rgba(255,77,109,.2); color:var(--red); border:1px solid var(--red); }
-
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
-/* ── TOAST ── */
-.toast {
-  position: fixed;
-  bottom: 28px; right: 28px;
-  background: var(--green);
-  color: #000;
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 14px 22px;
-  border-radius: 12px;
-  display: none;
-  align-items: center;
-  gap: 8px;
-  box-shadow: 0 8px 30px rgba(0,255,163,.35);
-  z-index: 999;
-  animation: toastIn .4s ease;
-}
-
-@keyframes toastIn {
-  from { transform:translateY(20px); opacity:0; }
-  to { transform:translateY(0); opacity:1; }
-}
-
-::-webkit-scrollbar { width:5px; height:5px; }
-::-webkit-scrollbar-track { background:var(--bg); }
-::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--t);font-family:var(--fn);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}
+#gate{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px}
+.g-title{font-family:var(--fd);font-size:clamp(1.8rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,#fff 0%,var(--c) 55%,var(--c2) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center;margin-bottom:6px;filter:drop-shadow(0 0 24px rgba(0,229,255,.18))}
+.g-sub{font-family:var(--fm);font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--m);text-align:center;margin-bottom:44px}
+.g-box{width:100%;max-width:440px;background:var(--s1);backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--b);border-radius:var(--rad);padding:40px 32px;text-align:center;position:relative;overflow:hidden}
+.g-box::before{content:'';position:absolute;top:0;left:15%;right:15%;height:1px;background:linear-gradient(90deg,transparent,var(--c),transparent);opacity:.45}
+.g-icon{font-size:50px;margin-bottom:18px;display:block;filter:drop-shadow(0 0 12px rgba(0,229,255,.3))}
+.g-label{font-family:var(--fd);font-size:12px;letter-spacing:2px;color:var(--c);margin-bottom:6px}
+.g-desc{color:var(--m);font-size:13px;line-height:1.65;margin-bottom:28px}
+.code-input{width:100%;background:rgba(0,0,0,.35);border:1.5px solid var(--b);border-radius:12px;color:#fff;font-family:var(--fm);font-size:20px;text-align:center;letter-spacing:5px;padding:15px;outline:none;transition:border-color .25s,box-shadow .25s;margin-bottom:14px;text-transform:uppercase}
+.code-input:focus{border-color:var(--c);box-shadow:0 0 0 3px rgba(0,229,255,.08),0 0 22px rgba(0,229,255,.14)}
+.g-err{color:var(--r);font-family:var(--fm);font-size:12px;margin-top:10px;min-height:16px;display:none}
+.btn{font-family:var(--fd);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:12px 22px;border:1px solid transparent;border-radius:10px;cursor:pointer;transition:all .22s;display:inline-flex;align-items:center;gap:8px;text-decoration:none;white-space:nowrap}
+.btn-c{background:var(--c);color:#000;border-color:var(--c);box-shadow:0 0 18px rgba(0,229,255,.22)}
+.btn-c:hover:not(:disabled){box-shadow:0 0 34px rgba(0,229,255,.45);transform:translateY(-2px)}
+.btn-c:disabled{opacity:.38;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-ghost{background:rgba(255,255,255,.03);color:var(--t);border-color:var(--b)}
+.btn-ghost:hover{border-color:var(--c);color:var(--c)}
+.btn-green{background:rgba(0,255,163,.07);color:var(--g);border-color:rgba(0,255,163,.2)}
+.btn-green:hover{background:rgba(0,255,163,.14);border-color:var(--g);box-shadow:0 0 18px rgba(0,255,163,.18)}
+#app{display:none;position:relative;z-index:1}
+.wrap{max-width:1100px;margin:0 auto;padding:36px 20px 80px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;flex-wrap:wrap;gap:14px}
+.brand{font-family:var(--fd);font-size:clamp(1.2rem,2.5vw,1.9rem);font-weight:800;background:linear-gradient(135deg,#fff,var(--c));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.brand-sub{font-family:var(--fm);color:var(--m);font-size:10px;letter-spacing:2px;margin-top:3px}
+.q-chip{display:flex;align-items:center;gap:10px;background:rgba(0,229,255,.05);border:1px solid var(--b);border-radius:100px;padding:8px 18px}
+.q-dot{width:8px;height:8px;border-radius:50%;background:var(--g);animation:pls 2s ease-in-out infinite}
+@keyframes pls{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.6)}}
+.q-lbl{font-family:var(--fm);font-size:11px;color:var(--m)}
+.q-num{font-family:var(--fm);font-weight:600;font-size:15px;color:var(--g)}
+.card{background:var(--s1);backdrop-filter:blur(14px) saturate(150%);border:1px solid var(--b);border-radius:var(--rad);padding:28px;margin-bottom:22px;position:relative;overflow:hidden;transition:border-color .3s,box-shadow .3s}
+.card:hover{border-color:var(--bh);box-shadow:0 18px 50px rgba(0,0,0,.38),0 0 18px rgba(0,229,255,.05)}
+.card::after{content:'';position:absolute;top:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,var(--c),transparent);opacity:.18}
+.up-zone{border:2px dashed var(--b);border-radius:14px;padding:46px 24px;text-align:center;cursor:pointer;position:relative;overflow:hidden;transition:border-color .3s,background .3s}
+.up-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:5}
+.up-zone:hover,.up-zone.drag{border-color:var(--c);background:rgba(0,229,255,.03)}
+.up-icon{font-size:44px;margin-bottom:12px;display:block}
+.up-title{font-family:var(--fd);font-size:14px;letter-spacing:1px}
+.up-hint{font-family:var(--fm);font-size:11px;color:var(--m);margin-top:5px}
+.file-tag{display:inline-flex;align-items:center;gap:8px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.18);border-radius:8px;padding:6px 13px;font-family:var(--fm);font-size:11px;color:var(--c);margin-top:12px}
+.actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.q-warn{display:none;align-items:center;gap:10px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:11px 15px;font-family:var(--fm);font-size:12px;color:var(--y);margin-top:12px}
+#pArea{display:none;margin-top:22px}
+.p-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+.p-lbl{display:flex;align-items:center;gap:8px;font-family:var(--fm);font-size:12px;color:var(--c)}
+.spin{width:13px;height:13px;border:2px solid rgba(0,229,255,.18);border-top-color:var(--c);border-radius:50%;animation:sp .65s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+.p-cnt{font-family:var(--fm);font-size:12px;color:var(--m)}
+.pbar-w{background:rgba(255,255,255,.04);border-radius:100px;height:7px;overflow:hidden;margin-bottom:13px}
+.pbar{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--c2),var(--c),var(--g));background-size:200% 100%;animation:pg 2s linear infinite;transition:width .38s ease;width:0%}
+@keyframes pg{0%{background-position:100% 0}100%{background-position:-100% 0}}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:11px;padding:5px 11px;background:var(--s2);border:1px solid var(--b);border-radius:6px}
+.sd{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.t-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px}
+.t-title{font-family:var(--fd);font-size:11px;letter-spacing:2px;color:var(--c);text-transform:uppercase}
+.dl-g{display:flex;gap:8px}
+.tw{overflow-x:auto;border-radius:12px}
+table{width:100%;border-collapse:separate;border-spacing:0}
+thead tr{background:rgba(0,229,255,.03)}
+th{padding:12px 15px;font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--c);text-align:left;border-bottom:1px solid var(--b);white-space:nowrap}
+td{padding:12px 15px;font-family:var(--fm);font-size:12px;color:#94a3b8;border-bottom:1px solid rgba(30,45,69,.35);white-space:nowrap}
+tbody tr{animation:rIn .32s ease forwards;opacity:0;transform:translateX(-6px)}
+@keyframes rIn{to{opacity:1;transform:translateX(0)}}
+tbody tr:hover{background:rgba(0,229,255,.02)}
+td:nth-child(2){color:var(--t);font-family:var(--fn);font-weight:600}
+.rp{animation:none!important;opacity:1!important;transform:none!important}
+.rp td{color:var(--m)!important;font-style:italic;font-size:11px!important}
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;font-family:var(--fm);letter-spacing:1px;text-transform:uppercase}
+.bM{background:rgba(0,255,163,.1);color:var(--g);border:1px solid rgba(0,255,163,.2)}
+.bD{background:rgba(251,191,36,.1);color:var(--y);border:1px solid rgba(251,191,36,.2)}
+.bI{background:rgba(255,77,109,.09);color:var(--r);border:1px solid rgba(255,77,109,.18)}
+.bE{background:rgba(255,77,109,.18);color:var(--r);border:1px solid var(--r)}
+.empty{text-align:center;padding:56px 20px;color:var(--m);font-family:var(--fm);font-size:13px}
+.toast{position:fixed;bottom:26px;right:26px;z-index:999;color:#000;font-family:var(--fm);font-size:12px;font-weight:700;padding:13px 20px;border-radius:12px;display:none;align-items:center;gap:8px;animation:tIn .35s ease}
+@keyframes tIn{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--b);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--c)}
 </style>
 </head>
 <body>
-
 <canvas id="cvs"></canvas>
-
-<!-- ── GATE ── -->
 <div id="gate">
-  <div class="gate-brand">REKENING VALIDATOR</div>
-  <div class="gate-sub">// professional bank account verification system</div>
-
-  <div class="gate-box">
-    <span class="gate-icon">🔐</span>
-    <div class="gate-title">Masukkan Kode Aktivasi</div>
-    <div class="gate-desc">Kode bersifat permanen hingga kuota habis.<br>Setiap 1 hasil memotong 1 kuota.</div>
-    <input class="code-input" id="codeInput" placeholder="KODE-XXXX" autocomplete="off"
-      onkeydown="if(event.key==='Enter') verifyCode()">
-    <button class="btn btn-cyan" id="btnVerify" onclick="verifyCode()" style="width:100%;justify-content:center;">
-      🔓 Verifikasi Kode
-    </button>
-    <div class="gate-err" id="gateErr"></div>
+  <div class="g-title">REKENING VALIDATOR PRO</div>
+  <div class="g-sub">// professional bank account verification system</div>
+  <div class="g-box">
+    <span class="g-icon">🔐</span>
+    <div class="g-label">Kode Aktivasi</div>
+    <div class="g-desc">Kode bersifat permanen hingga kuota habis.<br><b style="color:var(--c)">1 kuota = 1 rekening</b> tervalidasi.</div>
+    <input class="code-input" id="codeInput" placeholder="KODE-XXXX" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')verifyCode()">
+    <button class="btn btn-c" id="btnVerify" onclick="verifyCode()" style="width:100%;justify-content:center">🔓 Verifikasi &amp; Masuk</button>
+    <div class="g-err" id="gErr"></div>
   </div>
 </div>
-
-<!-- ── MAIN APP ── -->
 <div id="app">
   <div class="wrap">
-
-    <!-- TOP BAR -->
     <div class="topbar">
       <div>
-        <div class="brand">REKENING VALIDATOR</div>
-        <div style="font-family:var(--mono);color:var(--muted);font-size:11px;letter-spacing:2px;margin-top:4px;">// batch bank verification</div>
+        <div class="brand">REKENING VALIDATOR PRO</div>
+        <div class="brand-sub">// batch bank verification</div>
       </div>
-      <div class="quota-chip">
-        <div class="quota-dot"></div>
-        <span style="color:var(--muted);font-size:11px;">KUOTA AKTIF</span>
-        <span class="quota-num" id="quotaNum">—</span>
+      <div class="q-chip">
+        <div class="q-dot"></div>
+        <span class="q-lbl">SISA KUOTA</span>
+        <span class="q-num" id="qNum">—</span>
       </div>
     </div>
-
-    <!-- UPLOAD CARD -->
     <div class="card">
-      <div class="upload-zone" id="upZone">
+      <div class="up-zone" id="upZone">
         <input type="file" id="fileIn" accept=".xlsx,.xls" onchange="onFile(this)">
-        <span class="upload-icon">📂</span>
-        <div class="upload-title">Drop File Excel atau Klik untuk Pilih</div>
-        <div class="upload-hint">Format: .xlsx / .xls · Kolom wajib: nama, rekening, bank</div>
+        <span class="up-icon">📂</span>
+        <div class="up-title">Drop File Excel atau Klik untuk Pilih</div>
+        <div class="up-hint">Format: .xlsx · .xls &nbsp;|&nbsp; Kolom: nama, rekening, bank</div>
       </div>
-
-      <div id="fileTag" class="file-tag" style="display:none;">
-        📎 <span id="fileName"></span>
-        <span id="fileRows" style="color:var(--muted)"></span>
-      </div>
-
-      <div class="quota-warn" id="qWarn">
-        ⚠ Jumlah data melebihi kuota tersisa! Kurangi data atau top-up kuota.
-      </div>
-
+      <div id="fTag" class="file-tag" style="display:none">📎 <span id="fName"></span><span id="fRows" style="color:var(--m)"></span></div>
+      <div class="q-warn" id="qWarn">⚠ Jumlah baris melebihi sisa kuota! Kurangi data atau hubungi admin untuk top-up.</div>
       <div class="actions">
-        <button class="btn btn-cyan" id="btnProses" onclick="proses()" disabled>
-          <span id="btnTxt">▶ Proses Sekarang</span>
-        </button>
-        <button class="btn btn-ghost" onclick="window.location='/template'">⬇ Download Template</button>
-        <button class="btn btn-ghost" onclick="window.location='/supported-banks'" style="border-color:rgba(124,58,237,.3);color:#a78bfa;">🏦 Daftar Bank Support</button>
+        <button class="btn btn-c" id="btnP" onclick="proses()" disabled><span id="btnTxt">▶ Proses Sekarang</span></button>
+        <button class="btn btn-ghost" onclick="location='/template'">⬇ Template</button>
+        <button class="btn btn-ghost" onclick="location='/supported-banks'">🏦 Daftar Bank</button>
       </div>
-
-      <!-- PROGRESS -->
       <div id="pArea">
-        <div class="p-header">
-          <div class="p-label">
-            <div class="spinner" id="spinner"></div>
-            <span id="pText">Memproses...</span>
-          </div>
-          <div class="p-count" id="pCount">0 / 0</div>
+        <div class="p-head">
+          <div class="p-lbl"><div class="spin" id="spin"></div><span id="pTxt">Memproses...</span></div>
+          <div class="p-cnt" id="pCnt">0 / 0</div>
         </div>
-        <div class="pbar-wrap"><div class="pbar" id="pBar"></div></div>
+        <div class="pbar-w"><div class="pbar" id="pBar"></div></div>
         <div class="stats">
-          <div class="stat"><div class="sdot" style="background:var(--green)"></div><span id="sMatch">0 Match</span></div>
-          <div class="stat"><div class="sdot" style="background:var(--yellow)"></div><span id="sDiff">0 Beda</span></div>
-          <div class="stat"><div class="sdot" style="background:var(--red)"></div><span id="sInvalid">0 Tidak Valid</span></div>
-          <div class="stat"><div class="sdot" style="background:#ff6b6b"></div><span id="sError">0 Error</span></div>
+          <div class="stat"><div class="sd" style="background:var(--g)"></div><span id="sM">0 Match</span></div>
+          <div class="stat"><div class="sd" style="background:var(--y)"></div><span id="sD">0 Beda</span></div>
+          <div class="stat"><div class="sd" style="background:var(--r)"></div><span id="sI">0 Tidak Valid</span></div>
+          <div class="stat"><div class="sd" style="background:#f97316"></div><span id="sE">0 Error</span></div>
         </div>
       </div>
     </div>
-
-    <!-- RESULTS CARD -->
     <div class="card">
-      <div class="t-header">
+      <div class="t-head">
         <div class="t-title">⚡ Hasil Validasi</div>
-        <div class="dl-group">
-          <button class="btn btn-green" onclick="download('xlsx')" style="padding:8px 16px;font-size:10px;">↓ XLSX</button>
-          <button class="btn btn-green" onclick="download('csv')" style="padding:8px 16px;font-size:10px;">↓ CSV</button>
+        <div class="dl-g">
+          <button class="btn btn-green" onclick="dl('xlsx')" style="padding:8px 15px;font-size:10px">↓ XLSX</button>
+          <button class="btn btn-green" onclick="dl('csv')" style="padding:8px 15px;font-size:10px">↓ CSV</button>
         </div>
       </div>
-
-      <div class="table-wrap">
+      <div class="tw">
         <table>
-          <thead>
-            <tr>
-              <th>No</th><th>Nama</th><th>Rekening</th>
-              <th>Bank</th><th>Nama di Bank</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="tbody">
-            <tr><td colspan="6">
-              <div class="empty-state">📡 Upload file dan klik Proses untuk mulai validasi</div>
-            </td></tr>
-          </tbody>
+          <thead><tr><th>No</th><th>Nama</th><th>Rekening</th><th>Bank</th><th>Nama di Bank</th><th>Status</th></tr></thead>
+          <tbody id="tbody"><tr><td colspan="6"><div class="empty">📡 Upload file Excel lalu klik Proses</div></td></tr></tbody>
         </table>
       </div>
     </div>
-
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
-
 <script>
-// ── STARS ──────────────────────────────────────────────
-const cvs = document.getElementById('cvs');
-const ctx = cvs.getContext('2d');
-let stars = [];
-function initStars() {
-  cvs.width  = window.innerWidth;
-  cvs.height = window.innerHeight;
-  stars = Array.from({length: 160}, () => ({
-    x: Math.random() * cvs.width,
-    y: Math.random() * cvs.height,
-    r: Math.random() * 1.5,
-    s: Math.random() * 0.4 + 0.05
-  }));
-}
-function drawStars() {
-  ctx.clearRect(0, 0, cvs.width, cvs.height);
-  stars.forEach(s => {
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,255,255,${0.3 + s.r * 0.3})`;
-    ctx.fill();
-    s.y += s.s;
-    if (s.y > cvs.height) { s.y = 0; s.x = Math.random() * cvs.width; }
-  });
-  requestAnimationFrame(drawStars);
-}
-window.addEventListener('resize', initStars);
-initStars(); drawStars();
+(function(){
+  const cvs=document.getElementById('cvs'),ctx=cvs.getContext('2d');let S=[];
+  function init(){cvs.width=innerWidth;cvs.height=innerHeight;S=Array.from({length:150},()=>({x:Math.random()*cvs.width,y:Math.random()*cvs.height,r:Math.random()*1.4+.2,v:Math.random()*.35+.04}))}
+  function draw(){ctx.clearRect(0,0,cvs.width,cvs.height);S.forEach(s=>{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${.2+s.r*.15})`;ctx.fill();s.y+=s.v;if(s.y>cvs.height){s.y=0;s.x=Math.random()*cvs.width}});requestAnimationFrame(draw)}
+  window.addEventListener('resize',init);init();draw();
+})();
 
-// ── DRAG & DROP ─────────────────────────────────────────
-const upZone = document.getElementById('upZone');
-upZone.addEventListener('dragover',  e => { e.preventDefault(); upZone.classList.add('drag'); });
-upZone.addEventListener('dragleave', () => upZone.classList.remove('drag'));
-upZone.addEventListener('drop', e => {
-  e.preventDefault(); upZone.classList.remove('drag');
-  const f = e.dataTransfer.files[0];
-  if (f) { document.getElementById('fileIn').files = e.dataTransfer.files; onFile(document.getElementById('fileIn')); }
-});
+const upZone=document.getElementById('upZone');
+upZone.addEventListener('dragover',e=>{e.preventDefault();upZone.classList.add('drag')});
+upZone.addEventListener('dragleave',()=>upZone.classList.remove('drag'));
+upZone.addEventListener('drop',e=>{e.preventDefault();upZone.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){document.getElementById('fileIn').files=e.dataTransfer.files;onFile(document.getElementById('fileIn'))}});
 
-// ── STATE ───────────────────────────────────────────────
-let results = [], total = 0, done = 0, cM = 0, cD = 0, cI = 0, cE = 0;
-let currentCode = '', currentQuota = 0, fileRows = 0;
+let results=[],total=0,done=0,cM=0,cD=0,cI=0,cE=0,CODE='',QUOTA=0,FILE_ROWS=0;
 
-// ── GATE ────────────────────────────────────────────────
-function verifyCode() {
-  const code = document.getElementById('codeInput').value.trim();
-  const errEl = document.getElementById('gateErr');
-  const btn   = document.getElementById('btnVerify');
-  if (!code) return;
-
-  btn.disabled = true;
-  btn.textContent = '⏳ Memverifikasi...';
-  errEl.style.display = 'none';
-
-  fetch('/verify-code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code })
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.valid) {
-      currentCode  = code.trim().toUpperCase();
-      currentQuota = d.quota;
-      document.getElementById('gate').style.display = 'none';
-      document.getElementById('app').style.display  = 'block';
-      setQuota(d.quota);
-    } else {
-      errEl.textContent = '✗ ' + (d.message || 'Akses ditolak');
-      errEl.style.display = 'block';
-      btn.disabled = false;
-      btn.textContent = '🔓 Verifikasi Kode';
-    }
-  })
-  .catch(() => {
-    errEl.textContent = '✗ Koneksi gagal. Coba lagi.';
-    errEl.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = '🔓 Verifikasi Kode';
-  });
+function verifyCode(){
+  const code=document.getElementById('codeInput').value.trim();
+  const err=document.getElementById('gErr'),btn=document.getElementById('btnVerify');
+  if(!code)return;
+  btn.disabled=true;btn.textContent='⏳ Memverifikasi...';err.style.display='none';
+  fetch('/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})})
+  .then(r=>r.json()).then(d=>{
+    if(d.valid){CODE=code.trim().toUpperCase();document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';setQuota(d.quota)}
+    else{err.textContent='✗ '+(d.message||'Akses ditolak');err.style.display='block';btn.disabled=false;btn.innerHTML='🔓 Verifikasi &amp; Masuk'}
+  }).catch(()=>{err.textContent='✗ Koneksi gagal. Coba lagi.';err.style.display='block';btn.disabled=false;btn.innerHTML='🔓 Verifikasi &amp; Masuk'});
 }
 
-function setQuota(q) {
-  currentQuota = q;
-  document.getElementById('quotaNum').textContent = q;
-  document.getElementById('quotaNum').style.color = q > 10 ? 'var(--green)' : q > 0 ? 'var(--yellow)' : 'var(--red)';
-  // cek warning
-  if (fileRows > 0 && fileRows > q) {
-    document.getElementById('qWarn').style.display = 'flex';
-    document.getElementById('btnProses').disabled = true;
-  } else if (fileRows > 0) {
-    document.getElementById('qWarn').style.display = 'none';
-    document.getElementById('btnProses').disabled = false;
-  }
+function setQuota(q){
+  QUOTA=q;
+  const el=document.getElementById('qNum');
+  el.textContent=q.toLocaleString();
+  el.style.color=q>50?'var(--g)':q>10?'var(--y)':'var(--r)';
+  document.querySelector('.q-dot').style.background=q>0?'var(--g)':'var(--r)';
+  checkQuotaWarn();
+}
+function checkQuotaWarn(){
+  const over=FILE_ROWS>0&&FILE_ROWS>QUOTA;
+  document.getElementById('qWarn').style.display=over?'flex':'none';
+  document.getElementById('btnP').disabled=over||(QUOTA<=0)||(FILE_ROWS===0);
 }
 
-// ── FILE CHANGE ─────────────────────────────────────────
-function onFile(input) {
-  const f = input.files[0];
-  if (!f) return;
-  document.getElementById('fileName').textContent = f.name;
-  document.getElementById('fileTag').style.display = 'inline-flex';
-  document.getElementById('fileRows').textContent = '';
-
-  // Estimasi baris dari ukuran file (kasar, nanti update setelah proses start)
-  fileRows = 0;
-  document.getElementById('qWarn').style.display = 'none';
-  document.getElementById('btnProses').disabled = currentQuota <= 0;
+function onFile(inp){
+  const f=inp.files[0];if(!f)return;
+  document.getElementById('fName').textContent=f.name;
+  document.getElementById('fTag').style.display='inline-flex';
+  document.getElementById('fRows').textContent='';
+  FILE_ROWS=1;checkQuotaWarn();
 }
 
-// ── PROSES ──────────────────────────────────────────────
-function proses() {
-  const file = document.getElementById('fileIn').files[0];
-  if (!file) return;
-  if (currentQuota <= 0) { showToast('Kuota habis! Tidak bisa proses.', true); return; }
-
-  // Reset state
-  results = []; done = 0; cM = 0; cD = 0; cI = 0; cE = 0; total = 0;
-  document.getElementById('tbody').innerHTML = '';
-  document.getElementById('pBar').style.width = '0%';
-  document.getElementById('btnProses').disabled = true;
-  document.getElementById('btnTxt').textContent = '⏳ Memproses...';
-  document.getElementById('pArea').style.display = 'block';
-  document.getElementById('pText').textContent = 'Memulai validasi...';
-  document.getElementById('spinner').style.display = 'inline-block';
-
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('code', currentCode);
-
-  fetch('/stream', { method: 'POST', body: fd })
-  .then(async res => {
-    if (!res.ok) {
-      let em = 'Gagal';
-      try { const e = await res.json(); em = e.error || em; } catch(x) {}
-      throw new Error(em);
-    }
-    const reader  = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-
-    function read() {
-      reader.read().then(({ done: sd, value }) => {
-        if (sd) {
-          // Stream ended — jika proses belum selesai tampilkan info
-          if (done < total && total > 0) {
-            document.getElementById('pText').textContent = '⚠ Koneksi terputus. Data sebagian mungkin sudah diproses.';
-            document.getElementById('spinner').style.display = 'none';
-            document.getElementById('btnProses').disabled = false;
-            document.getElementById('btnTxt').textContent = '▶ Proses Sekarang';
-          }
-          return;
-        }
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
-        buf = parts.pop();
-        parts.forEach(p => {
-          const raw = p.replace(/^data:\s*/, '').trim();
-          if (!raw) return;
-          try { handle(JSON.parse(raw)); } catch(e) { console.warn('Parse err:', e); }
-        });
+function proses(){
+  const file=document.getElementById('fileIn').files[0];
+  if(!file)return;
+  if(QUOTA<=0){toast('Kuota habis!',1);return;}
+  results=[];done=0;cM=0;cD=0;cI=0;cE=0;total=0;
+  document.getElementById('tbody').innerHTML='';
+  document.getElementById('pBar').style.width='0%';
+  document.getElementById('btnP').disabled=true;
+  document.getElementById('btnTxt').textContent='⏳ Memproses...';
+  document.getElementById('pArea').style.display='block';
+  document.getElementById('pTxt').textContent='Memulai validasi...';
+  document.getElementById('spin').style.display='inline-block';
+  const fd=new FormData();fd.append('file',file);fd.append('code',CODE);
+  fetch('/stream',{method:'POST',body:fd})
+  .then(async res=>{
+    if(!res.ok){let em='Gagal';try{const e=await res.json();em=e.error||em}catch(x){}throw new Error(em)}
+    const reader=res.body.getReader(),dec=new TextDecoder();let buf='';
+    function read(){
+      reader.read().then(({done:sd,value})=>{
+        if(sd){if(done<total&&total>0){document.getElementById('pTxt').textContent='⚠ Koneksi terputus.';document.getElementById('spin').style.display='none';resetBtn()}return}
+        buf+=dec.decode(value,{stream:true});
+        const parts=buf.split('\n\n');buf=parts.pop();
+        parts.forEach(p=>{const raw=p.replace(/^data:\s*/,'').trim();if(!raw)return;try{handle(JSON.parse(raw))}catch(e){}});
         read();
-      }).catch(e => {
-        document.getElementById('pText').textContent = '✗ Stream terputus: ' + e.message;
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('btnProses').disabled = false;
-        document.getElementById('btnTxt').textContent = '▶ Proses Sekarang';
-      });
+      }).catch(e=>{document.getElementById('pTxt').textContent='✗ Stream error: '+e.message;document.getElementById('spin').style.display='none';resetBtn()});
     }
     read();
-  })
-  .catch(e => {
-    document.getElementById('pText').textContent = '✗ ERROR: ' + e.message;
-    document.getElementById('spinner').style.display = 'none';
-    document.getElementById('btnProses').disabled = false;
-    document.getElementById('btnTxt').textContent = '▶ Proses Sekarang';
-  });
+  }).catch(e=>{document.getElementById('pTxt').textContent='✗ '+e.message;document.getElementById('spin').style.display='none';resetBtn()});
 }
 
-function handle(d) {
-  if (d.type === 'start') {
-    total = d.total;
-    fileRows = total;
-    document.getElementById('pCount').textContent = `0 / ${total}`;
-    document.getElementById('fileRows').textContent = ` (${total} baris)`;
-    document.getElementById('pText').textContent = 'Memvalidasi rekening...';
+function resetBtn(){document.getElementById('btnP').disabled=false;document.getElementById('btnTxt').textContent='▶ Proses Sekarang'}
 
-    // Buat placeholder rows
-    let html = '';
-    for (let i = 1; i <= total; i++) {
-      html += `<tr class="row-pending" id="row-${i}">
-        <td style="color:var(--muted)">${i}</td>
-        <td colspan="5" style="color:var(--muted);font-style:italic;font-size:11px;">
-          📡 Menghubungi server bank...
-        </td>
-      </tr>`;
-    }
-    document.getElementById('tbody').innerHTML = html;
+function handle(d){
+  if(d.type==='start'){
+    total=d.total;FILE_ROWS=total;
+    document.getElementById('fRows').textContent=` (${total} baris)`;
+    document.getElementById('pCnt').textContent=`0 / ${total}`;
+    document.getElementById('pTxt').textContent='Memvalidasi rekening...';
+    let html='';
+    for(let i=1;i<=total;i++)html+=`<tr class="rp" id="row-${i}"><td>${i}</td><td colspan="5">📡 Menghubungi bank...</td></tr>`;
+    document.getElementById('tbody').innerHTML=html;
+    return;
   }
-
-  if (d.type === 'result') {
-    results.push([d.index, d.nama, d.rekening, d.bank, d.nama_bank, d.hasil]);
+  if(d.type==='result'){
+    results.push([d.index,d.nama,d.rekening,d.bank,d.nama_bank,d.hasil]);
     done++;
-    if (d.hasil === 'MATCH')      cM++;
-    else if (d.hasil === 'TIDAK SAMA') cD++;
-    else if (d.hasil === 'ERROR') cE++;
-    else                          cI++;
-
-    document.getElementById('sMatch').textContent   = cM + ' Match';
-    document.getElementById('sDiff').textContent    = cD + ' Beda';
-    document.getElementById('sInvalid').textContent = cI + ' Tidak Valid';
-    document.getElementById('sError').textContent   = cE + ' Error';
-    document.getElementById('pCount').textContent   = `${done} / ${total}`;
-    document.getElementById('pBar').style.width     = `${(done/total)*100}%`;
-
-    if (d.sisa_kuota !== undefined) setQuota(d.sisa_kuota);
-
-    const cls = d.hasil === 'MATCH' ? 'bm' : d.hasil === 'TIDAK SAMA' ? 'bd' : d.hasil === 'ERROR' ? 'be' : 'bi';
-    const nameColor = d.hasil === 'MATCH' ? 'var(--green)' : d.hasil === 'TIDAK SAMA' ? 'var(--yellow)' : 'var(--muted)';
-    const tr = document.getElementById(`row-${d.index}`);
-    if (tr) {
-      tr.removeAttribute('class');
-      tr.innerHTML = `
-        <td style="color:var(--muted);font-size:11px">${d.index}</td>
-        <td>${esc(d.nama)}</td>
-        <td style="font-family:var(--mono)">${esc(d.rekening)}</td>
-        <td>${esc((d.bank || '').toUpperCase())}</td>
-        <td style="color:${nameColor}">${esc(d.nama_bank)}</td>
-        <td><span class="badge ${cls}">${d.hasil}</span></td>
-      `;
-    }
+    if(d.hasil==='MATCH')cM++;else if(d.hasil==='TIDAK SAMA')cD++;else if(d.hasil==='ERROR')cE++;else cI++;
+    document.getElementById('sM').textContent=cM+' Match';
+    document.getElementById('sD').textContent=cD+' Beda';
+    document.getElementById('sI').textContent=cI+' Tidak Valid';
+    document.getElementById('sE').textContent=cE+' Error';
+    document.getElementById('pCnt').textContent=`${done} / ${total}`;
+    document.getElementById('pBar').style.width=`${(done/total)*100}%`;
+    if(d.sisa_kuota!=null)setQuota(d.sisa_kuota);
+    const cls=d.hasil==='MATCH'?'bM':d.hasil==='TIDAK SAMA'?'bD':d.hasil==='ERROR'?'bE':'bI';
+    const nc=d.hasil==='MATCH'?'var(--g)':d.hasil==='TIDAK SAMA'?'var(--y)':'var(--m)';
+    const tr=document.getElementById(`row-${d.index}`);
+    if(tr){tr.removeAttribute('class');tr.innerHTML=`<td style="color:var(--m);font-size:11px">${d.index}</td><td>${x(d.nama)}</td><td style="font-family:var(--fm)">${x(d.rekening)}</td><td>${x((d.bank||'').toUpperCase())}</td><td style="color:${nc}">${x(d.nama_bank)}</td><td><span class="badge ${cls}">${d.hasil}</span></td>`}
+    return;
   }
-
-  if (d.type === 'done') {
-    document.getElementById('pText').textContent   = `✓ Selesai — ${d.total} rekening divalidasi`;
-    document.getElementById('spinner').style.display = 'none';
-    document.getElementById('pBar').style.width     = '100%';
-    document.getElementById('btnProses').disabled   = false;
-    document.getElementById('btnTxt').textContent   = '▶ Proses Sekarang';
-    showToast(`✓ Selesai! ${cM} Match · ${cD} Beda · ${cI} Invalid · Sisa kuota: ${currentQuota}`);
-  }
-
-  if (d.type === 'error') {
-    document.getElementById('pText').textContent   = '✗ ERROR: ' + d.message;
-    document.getElementById('spinner').style.display = 'none';
-    document.getElementById('btnProses').disabled   = false;
-    document.getElementById('btnTxt').textContent   = '▶ Proses Sekarang';
-  }
+  if(d.type==='done'){document.getElementById('pTxt').textContent=`✓ Selesai — ${d.total} rekening divalidasi`;document.getElementById('spin').style.display='none';document.getElementById('pBar').style.width='100%';resetBtn();toast(`✓ ${cM} Match · ${cD} Beda · ${cI} Invalid | Sisa: ${QUOTA.toLocaleString()}`);return}
+  if(d.type==='error'){document.getElementById('pTxt').textContent='✗ ERROR: '+d.message;document.getElementById('spin').style.display='none';resetBtn()}
 }
 
-// ── DOWNLOAD ────────────────────────────────────────────
-function download(fmt) {
-  if (!results.length) { showToast('Belum ada hasil untuk diunduh!', true); return; }
-  const sorted = [...results].sort((a, b) => a[0] - b[0]);
-  const ts = new Date().toISOString().slice(0,10);
-  fetch('/download', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: sorted, format: fmt })
-  })
-  .then(r => {
-    if (!r.ok) throw new Error('Download gagal');
-    return r.blob();
-  })
-  .then(blob => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `hasil_validasi_${ts}.${fmt}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);  // Bebaskan memori
-    showToast(`✓ File ${fmt.toUpperCase()} berhasil diunduh`);
-  })
-  .catch(e => showToast('✗ ' + e.message, true));
+function dl(fmt){
+  if(!results.length){toast('Belum ada hasil!',1);return}
+  const sorted=[...results].sort((a,b)=>a[0]-b[0]);
+  const ts=new Date().toISOString().slice(0,10);
+  fetch('/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:sorted,format:fmt})})
+  .then(r=>{if(!r.ok)throw new Error('Gagal');return r.blob()})
+  .then(blob=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`hasil_validasi_${ts}.${fmt}`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);toast(`✓ File ${fmt.toUpperCase()} diunduh`)})
+  .catch(e=>toast('✗ '+e.message,1));
 }
 
-// ── UTILS ───────────────────────────────────────────────
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function x(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-let _toastTimer = null;
-function showToast(msg, isErr) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.background = isErr ? 'var(--red)' : 'var(--green)';
-  t.style.color = '#000';
-  t.style.display = 'flex';
-  if (_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => { t.style.display = 'none'; }, 6000);
+let _tt=null;
+function toast(msg,err){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.style.background=err?'var(--r)':'var(--g)';t.style.color='#000';t.style.display='flex';
+  if(_tt)clearTimeout(_tt);_tt=setTimeout(()=>t.style.display='none',6000);
 }
-
-// Keyboard shortcut: Enter di gate
-document.getElementById('codeInput')?.addEventListener('keydown', e => {
-  if (e.key === 'Enter') verifyCode();
-});
 </script>
 </body>
 </html>
