@@ -41,14 +41,11 @@ app = Flask(__name__)
 API_KEY   = os.getenv("APICOID_API_KEY", "")
 ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
-# Kedua endpoint dicoba secara berurutan:
-# 1. use.api.co.id  → GET dengan x-api-co-id header (endpoint resmi baru)
-# 2. api.api.co.id  → POST dengan Bearer token (endpoint lama, masih aktif)
-ENDPOINT_NEW = "https://use.api.co.id/validation/bank"
-ENDPOINT_OLD = "https://api.co.id/v1/bank/account"  # Host corrected
+# Endpoint resmi api.co.id (GET + header x-api-co-id)
+API_ENDPOINT = "https://use.api.co.id/validation/bank"
 
-MAX_WORKERS   = 5      # Paralel requests — jangan terlalu tinggi agar tidak di-rate-limit
-REQUEST_TIMEOUT = 25   # Detik per request
+MAX_WORKERS     = 4
+REQUEST_TIMEOUT = 30
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,13 +133,73 @@ def quota_list() -> list[dict]:
     return [{"code": k, "quota": int(v)} for k, v in sorted(d.items())]
 
 
-# Beberapa API lama butuh kode numerik
-NUMERIC_BANKS = {
-    "bca": "014", "mandiri": "008", "bni": "009", "bri": "002",
-    "btpn": "213", "cimb": "022", "danamon": "011", "ocbc": "028",
-    "permata": "013", "panin": "019", "hana": "484", "seabank": "535",
-    "jago": "542", "allo": "561"
-}
+# Health check: verifikasi API key bisa benar-benar validasi rekening
+_api_health_ok: Optional[bool] = None
+_api_health_msg: str = ""
+_api_health_lock = threading.Lock()
+
+
+def api_health_check(force: bool = False) -> tuple[bool, str]:
+    """Tes 1 rekening BCA umum untuk pastikan API key punya akses Bank Validation."""
+    global _api_health_ok, _api_health_msg
+    if not force and _api_health_ok is not None:
+        return _api_health_ok, _api_health_msg
+
+    with _api_health_lock:
+        if not force and _api_health_ok is not None:
+            return _api_health_ok, _api_health_msg
+
+        if not API_KEY:
+            _api_health_ok = False
+            _api_health_msg = "APICOID_API_KEY belum di-set"
+            return False, _api_health_msg
+
+        sess = get_session()
+        # Gunakan rekening BCA test yang umum
+        try:
+            resp = sess.get(
+                API_ENDPOINT,
+                params={"bank_code": "bca", "account_number": "0201245750", "account_name": "TEST"},
+                headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
+                timeout=20,
+            )
+            log.info("[HEALTH] HTTP %d | %s", resp.status_code, resp.text[:200])
+
+            if resp.status_code == 401:
+                _api_health_ok = False
+                _api_health_msg = "API Key tidak valid (401)"
+            elif resp.status_code == 402:
+                _api_health_ok = False
+                _api_health_msg = "Saldo api.co.id habis (402). Top-up di dashboard api.co.id"
+            elif resp.status_code == 200:
+                body = resp.json()
+                if not body.get("is_success"):
+                    _api_health_ok = False
+                    _api_health_msg = f"API Error: {body.get('message', 'Unknown')}"
+                else:
+                    inner = body.get("data", {})
+                    # Jika is_valid=true ATAU name ada → API benar-benar query ke bank
+                    if inner.get("is_valid") or inner.get("name"):
+                        _api_health_ok = True
+                        _api_health_msg = "API aktif dan bisa validasi rekening"
+                    else:
+                        # is_valid=false + name=null → kemungkinan besar saldo habis
+                        # atau akun belum Premium. API tetap return 200 tapi tidak query bank.
+                        _api_health_ok = False
+                        _api_health_msg = (
+                            "API key valid tapi tidak bisa validasi rekening. "
+                            "Kemungkinan: (1) Saldo api.co.id habis, "
+                            "(2) Akun belum langganan Premium (Rp50rb/bln). "
+                            "Cek dashboard di api.co.id"
+                        )
+            else:
+                _api_health_ok = False
+                _api_health_msg = f"HTTP {resp.status_code}"
+        except Exception as exc:
+            _api_health_ok = False
+            _api_health_msg = f"Gagal koneksi: {exc}"
+
+    return _api_health_ok, _api_health_msg
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTP SESSION (shared, connection-pooled)
@@ -246,153 +303,100 @@ class APIResult:
         return not self.error
 
 
-def _try_new_endpoint(sess: requests.Session, bank_code: str, account_no: str, account_name: str) -> Optional[APIResult]:
+def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_name: str) -> Optional[APIResult]:
     """
     GET https://use.api.co.id/validation/bank
-    Header: x-api-co-id
-    Params: bank_code, account_number, account_name
+    Return: APIResult jika definitif, None jika perlu coba format lain.
     """
     try:
         resp = sess.get(
-            ENDPOINT_NEW,
+            API_ENDPOINT,
             params={
-                "bank_code":     bank_code,
+                "bank_code":      bank_code,
                 "account_number": account_no,
-                "account_name":  account_name,
+                "account_name":   account_name,
             },
             headers={
                 "x-api-co-id": API_KEY,
-                "Accept":       "application/json",
-                "User-Agent":   "RekeningValidator/2.0",
+                "Accept":      "application/json",
             },
             timeout=REQUEST_TIMEOUT,
         )
-        log.info("[NEW] %s %s → HTTP %d | %s", bank_code, account_no, resp.status_code, resp.text[:120])
+        log.info("[API] %s | %s | HTTP %d | %s", bank_code, account_no, resp.status_code, resp.text[:150])
 
         if resp.status_code == 401:
             return APIResult(error="API Key tidak valid (401)", is_system_error=True)
         if resp.status_code == 402:
-            return APIResult(error="Saldo api.co.id habis (402)", is_system_error=True)
+            return APIResult(error="Saldo api.co.id habis (402). Top-up di dashboard.", is_system_error=True)
         if resp.status_code == 429:
-            time.sleep(1.5)
-            return None  # Caller akan coba endpoint lain
+            time.sleep(2)
+            return None
         if resp.status_code != 200:
             return None
 
         body = resp.json()
+
         if not body.get("is_success"):
             msg = body.get("message", "")
-            # Jika bank_code tidak valid, return None agar caller bisa coba format lain
-            if any(x in msg.lower() for x in ("bank", "invalid", "tidak ditemukan")):
-                return None
-            return APIResult(error=msg or "Gagal validasi")
+            if any(kw in msg.lower() for kw in ("bank_code", "invalid", "not supported")):
+                return None  # Format bank salah, coba format lain
+            return APIResult(error=msg or "API Error")
 
         inner = body.get("data") or {}
         name   = inner.get("name") or inner.get("account_name")
         valid  = bool(inner.get("is_valid"))
         score  = float(inner.get("score") or 0)
 
-        # Jika API sukses tapi is_valid=False DAN name=null, ini adalah "Soft failure"
-        # Kita return None agar bisa coba fallback ke endpoint lama (Lookup)
-        if not valid and not name:
-            log.info("[NEW] %s %s → is_valid=False, name=null. Soft-failing for fallback.", bank_code, account_no)
-            return None
+        if valid or name:
+            return APIResult(
+                account_name=str(name or "").strip(),
+                is_valid=valid,
+                score=score,
+            )
 
-        return APIResult(account_name=str(name or "").strip(), is_valid=valid, score=score)
+        # is_valid=false + name=null → rekening tidak ditemukan ATAU saldo habis
+        # Bedakan: jika health check sudah gagal, ini pasti masalah saldo
+        if _api_health_ok is False:
+            return APIResult(
+                error=_api_health_msg or "Saldo api.co.id habis",
+                is_system_error=True,
+            )
 
-    except requests.exceptions.Timeout:
-        log.warning("[NEW] Timeout: %s %s", bank_code, account_no)
-        return None
-    except Exception as exc:
-        log.warning("[NEW] Exception: %s", exc)
-        return None
-
-
-def _try_old_endpoint(sess: requests.Session, bank_code: str, account_no: str) -> Optional[APIResult]:
-    """
-    POST https://api.api.co.id/v1/bank/account
-    Header: Authorization Bearer
-    Body: {bank, account_number}
-    Response: {success, data: {account_name}}
-    """
-    try:
-        resp = sess.post(
-            ENDPOINT_OLD,
-            json={"bank": bank_code, "account_number": account_no},
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type":  "application/json",
-                "Accept":        "application/json",
-                "User-Agent":    "RekeningValidator/2.0",
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-        log.info("[OLD] %s %s → HTTP %d | %s", bank_code, account_no, resp.status_code, resp.text[:120])
-
-        if resp.status_code == 401:
-            return APIResult(error="API Key tidak valid (401)", is_system_error=True)
-        if resp.status_code == 402:
-            return APIResult(error="Saldo api.co.id habis (402)", is_system_error=True)
-        if resp.status_code == 429:
-            time.sleep(1.5)
-            return None
-        if resp.status_code != 200:
-            return None
-
-        body = resp.json()
-        if not body.get("success"):
-            return APIResult(error=body.get("message", "Rekening tidak ditemukan"))
-
-        inner = body.get("data") or {}
-        name  = inner.get("account_name") or inner.get("name") or ""
-        if name:
-            return APIResult(account_name=name.strip(), is_valid=True, score=10.0)
-
-        return APIResult(error="Rekening tidak ditemukan")
+        # Return sebagai not-found (bukan None) — definitif untuk format ini
+        return APIResult(error=inner.get("message") or "Rekening tidak ditemukan")
 
     except requests.exceptions.Timeout:
-        log.warning("[OLD] Timeout: %s %s", bank_code, account_no)
+        log.warning("[API] Timeout: %s %s", bank_code, account_no)
         return None
     except Exception as exc:
-        log.warning("[OLD] Exception: %s", exc)
+        log.warning("[API] Exception: %s", exc)
         return None
 
 
 def check_account(account_no: str, bank_raw: str, account_name: str = "") -> APIResult:
     """
-    Multi-strategy account check:
-    1. New endpoint  → bank_bca
-    2. New endpoint  → bca
-    3. New endpoint  → 014 (numeric)
-    4. Old endpoint  → bca
-    5. Old endpoint  → bank_bca
+    Validasi rekening via api.co.id.
+    Coba format: bank_bca → bca secara berurutan.
     """
     if not API_KEY:
-        return APIResult(error="APICOID_API_KEY belum di-set di Railway!", is_system_error=True)
+        return APIResult(error="APICOID_API_KEY belum di-set!", is_system_error=True)
 
     sess = get_session()
     short, full = sanitize_bank(bank_raw)
-    numeric = NUMERIC_BANKS.get(short)
 
-    formats = [full, short]
-    if numeric:
-        formats.append(numeric)
+    # Coba full format dulu (bank_bca), lalu short (bca)
+    formats = [full, short] if full != short else [full]
 
-    # 1. Coba semua format di New Endpoint
     last_error = "Rekening tidak ditemukan"
     for fmt in formats:
-        res = _try_new_endpoint(sess, fmt, account_no, account_name)
-        if res:
-            if res.ok: return res
-            if res.is_system_error: return res
-            last_error = res.error
-
-    # 2. Coba fallback ke Old Endpoint (Lookup)
-    for fmt in [short, full]:
-        res = _try_old_endpoint(sess, fmt, account_no)
-        if res:
-            if res.ok: return res
-            if res.is_system_error: return res
+        res = _call_api(sess, fmt, account_no, account_name)
+        if res is None:
+            continue  # Format ini gagal, coba berikutnya
+        if res.is_system_error:
+            return res
+        if res.ok:
+            return res
+        last_error = res.error
 
     return APIResult(error=last_error)
 
@@ -529,6 +533,11 @@ def stream():
     if q <= 0:
         return jsonify({"error": "Kuota habis. Hubungi admin untuk top-up."}), 403
 
+    # Pre-flight: cek apakah API key bisa validasi rekening
+    healthy, health_msg = api_health_check(force=True)
+    if not healthy:
+        return jsonify({"error": f"API tidak siap: {health_msg}"}), 503
+
     file = request.files.get("file")
     if not file:
         return jsonify({"error": "File tidak ditemukan"}), 400
@@ -536,7 +545,7 @@ def stream():
     # Baca Excel — validasi kolom wajib
     try:
         raw_bytes = file.read()
-        df = pd.read_excel(io.BytesIO(raw_bytes), dtype=str)  # dtype=str: cegah auto-convert float
+        df = pd.read_excel(io.BytesIO(raw_bytes), dtype=str)
         df.columns = [c.strip().lower() for c in df.columns]
 
         required = {"nama", "rekening", "bank"}
@@ -717,40 +726,32 @@ def admin_debug():
     if not _require_admin():
         return jsonify({"ok": False, "msg": "Unauthorized"}), 401
 
+    # Jalankan health check dulu
+    healthy, health_msg = api_health_check(force=True)
+
     tests: dict = {
         "api_key_set":    bool(API_KEY),
         "api_key_prefix": (API_KEY[:12] + "…") if API_KEY else "—",
         "redis":          _redis is not None,
+        "health_check":   {"ok": healthy, "message": health_msg},
     }
 
     sess = get_session()
 
-    # Test endpoint baru
+    # Test endpoint
     for bank_code in ("bank_bca", "bca"):
         try:
             r = sess.get(
-                ENDPOINT_NEW,
+                API_ENDPOINT,
                 params={"bank_code": bank_code, "account_number": "0201245750", "account_name": "TEST"},
                 headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
                 timeout=15,
             )
-            tests[f"new_endpoint_{bank_code}"] = {
+            tests[f"endpoint_{bank_code}"] = {
                 "status": r.status_code, "body": r.text[:300]
             }
         except Exception as exc:
-            tests[f"new_endpoint_{bank_code}"] = {"error": str(exc)}
-
-    # Test endpoint lama
-    try:
-        r = sess.post(
-            ENDPOINT_OLD,
-            json={"bank": "bca", "account_number": "0201245750"},
-            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-            timeout=15,
-        )
-        tests["old_endpoint_bca"] = {"status": r.status_code, "body": r.text[:300]}
-    except Exception as exc:
-        tests["old_endpoint_bca"] = {"error": str(exc)}
+            tests[f"endpoint_{bank_code}"] = {"error": str(exc)}
 
     return jsonify(tests)
 
