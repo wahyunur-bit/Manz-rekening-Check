@@ -140,7 +140,7 @@ _api_health_lock = threading.Lock()
 
 
 def api_health_check(force: bool = False) -> tuple[bool, str]:
-    """Tes 1 rekening BCA umum untuk pastikan API key punya akses Bank Validation."""
+    """Cek konektivitas API dan validitas key. Tidak memblokir berdasarkan hasil validasi."""
     global _api_health_ok, _api_health_msg
     if not force and _api_health_ok is not None:
         return _api_health_ok, _api_health_msg
@@ -155,49 +155,36 @@ def api_health_check(force: bool = False) -> tuple[bool, str]:
             return False, _api_health_msg
 
         sess = get_session()
-        # Gunakan rekening BCA test yang umum
         try:
+            # Cek koneksi + validitas key via endpoint available banks
             resp = sess.get(
-                API_ENDPOINT,
-                params={"bank_code": "bca", "account_number": "0201245750", "account_name": "TEST"},
+                API_ENDPOINT + "/available",
                 headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
-                timeout=20,
+                timeout=15,
             )
-            log.info("[HEALTH] HTTP %d | %s", resp.status_code, resp.text[:200])
+            log.info("[HEALTH] HTTP %d | %s", resp.status_code, resp.text[:150])
 
             if resp.status_code == 401:
                 _api_health_ok = False
-                _api_health_msg = "API Key tidak valid (401)"
+                _api_health_msg = "API Key tidak valid (401). Cek di dashboard api.co.id"
             elif resp.status_code == 402:
                 _api_health_ok = False
                 _api_health_msg = "Saldo api.co.id habis (402). Top-up di dashboard api.co.id"
             elif resp.status_code == 200:
                 body = resp.json()
-                if not body.get("is_success"):
+                if body.get("is_success"):
+                    total = body.get("data", {}).get("total", 0) if isinstance(body.get("data"), dict) else len(body.get("data", []))
+                    _api_health_ok = True
+                    _api_health_msg = f"API aktif, {total} bank tersedia"
+                else:
                     _api_health_ok = False
                     _api_health_msg = f"API Error: {body.get('message', 'Unknown')}"
-                else:
-                    inner = body.get("data", {})
-                    # Jika is_valid=true ATAU name ada → API benar-benar query ke bank
-                    if inner.get("is_valid") or inner.get("name"):
-                        _api_health_ok = True
-                        _api_health_msg = "API aktif dan bisa validasi rekening"
-                    else:
-                        # is_valid=false + name=null → kemungkinan besar saldo habis
-                        # atau akun belum Premium. API tetap return 200 tapi tidak query bank.
-                        _api_health_ok = False
-                        _api_health_msg = (
-                            "API key valid tapi tidak bisa validasi rekening. "
-                            "Kemungkinan: (1) Saldo api.co.id habis, "
-                            "(2) Akun belum langganan Premium (Rp50rb/bln). "
-                            "Cek dashboard di api.co.id"
-                        )
             else:
                 _api_health_ok = False
                 _api_health_msg = f"HTTP {resp.status_code}"
         except Exception as exc:
             _api_health_ok = False
-            _api_health_msg = f"Gagal koneksi: {exc}"
+            _api_health_msg = f"Gagal koneksi ke api.co.id: {exc}"
 
     return _api_health_ok, _api_health_msg
 
@@ -354,16 +341,9 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
                 score=score,
             )
 
-        # is_valid=false + name=null → rekening tidak ditemukan ATAU saldo habis
-        # Bedakan: jika health check sudah gagal, ini pasti masalah saldo
-        if _api_health_ok is False:
-            return APIResult(
-                error=_api_health_msg or "Saldo api.co.id habis",
-                is_system_error=True,
-            )
-
-        # Return sebagai not-found (bukan None) — definitif untuk format ini
-        return APIResult(error=inner.get("message") or "Rekening tidak ditemukan")
+        # is_valid=false + name=null → rekening tidak ditemukan oleh bank ini
+        # Return None agar caller bisa coba format bank_code lain
+        return None
 
     except requests.exceptions.Timeout:
         log.warning("[API] Timeout: %s %s", bank_code, account_no)
