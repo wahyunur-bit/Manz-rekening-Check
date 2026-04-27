@@ -4,13 +4,15 @@ import json
 import pandas as pd
 import requests
 from flask import Flask, request, jsonify
-
-# Inisialisasi Flask (Mengatur folder statis agar index.html dan script.js bisa diakses)
-app = Flask(__name__, static_folder='.', static_url_path='')
+from flask_cors import CORS
 
 # ==========================================
 # 1. INIT & CONFIGURATION
 # ==========================================
+# Inisialisasi Flask WAJIB berada di sini agar Gunicorn (Railway) bisa menemukannya
+app = Flask(__name__, static_folder='.', static_url_path='')
+CORS(app) # Mengizinkan frontend berkomunikasi dengan backend tanpa diblokir browser
+
 # Muat codes.json saat aplikasi pertama kali berjalan
 try:
     with open('codes.json', 'r') as f:
@@ -48,12 +50,12 @@ def validate_via_provider(bank_code, account_number):
     # ---------------------------------------------------------
     # [CRITICAL ZONE] UBAH BAGIAN INI SESUAI API PROVIDER ANDA
     # ---------------------------------------------------------
-    API_URL = "https://api.domain-provider-anda.com/v1/bank-account/validate" # Ganti URL aslinya
-    API_KEY = os.environ.get('API_SECRET_KEY', 'KUNCI_API_ANDA_DISINI') # Set di Railway Variables
+    API_URL = "https://api.domain-provider-anda.com/v1/bank-account/validate" # UBAH DENGAN URL ASLI
+    API_KEY = os.environ.get('API_SECRET_KEY', 'KUNCI_API_ANDA_DISINI') # UBAH DENGAN API KEY ASLI
     
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}" # Sesuaikan dengan skema Auth provider Anda
+        "Authorization": f"Bearer {API_KEY}" # Sesuaikan tipe otorisasi jika berbeda
     }
     
     payload = {
@@ -93,7 +95,8 @@ def serve_frontend():
     """ Menyajikan file index.html sebagai tampilan utama """
     return app.send_static_file('index.html')
 
-@app.route('/api/check', methods=['POST']) # Pastikan URL endpoint ini sama dengan fetch() di script.js Anda
+# CATATAN: Pastikan di script.js Anda, fetch() mengarah ke '/api/check'
+@app.route('/api/check', methods=['POST']) 
 def process_batch():
     if 'file' not in request.files:
         return jsonify({"error": "Tidak ada file yang diunggah"}), 400
@@ -114,7 +117,7 @@ def process_batch():
         # Normalisasi nama kolom Excel menjadi UPPERCASE agar tidak case-sensitive
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Asumsi nama kolom di Excel Anda. Sesuaikan jika di Excel namanya "NAMA BANK" atau "NO REKENING"
+        # Asumsi nama kolom di Excel Anda
         COL_BANK = 'BANK'
         COL_REK = 'REKENING'
 
