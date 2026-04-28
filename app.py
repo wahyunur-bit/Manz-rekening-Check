@@ -333,6 +333,7 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
         name   = inner.get("name") or inner.get("account_name")
         valid  = bool(inner.get("is_valid"))
         score  = float(inner.get("score") or 0)
+        api_msg = inner.get("message") or body.get("message") or "Rekening tidak ditemukan"
 
         if valid or name:
             return APIResult(
@@ -341,9 +342,9 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
                 score=score,
             )
 
-        # is_valid=false + name=null → rekening tidak ditemukan oleh bank ini
-        # Return None agar caller bisa coba format bank_code lain
-        return None
+        # is_valid=false + name=null
+        # Mengembalikan error spesifik dari API agar transparan
+        return APIResult(error=api_msg, is_system_error=False)
 
     except requests.exceptions.Timeout:
         log.warning("[API] Timeout: %s %s", bank_code, account_no)
@@ -407,8 +408,9 @@ def process_row(index: int, row: dict) -> dict:
     if not result.ok:
         if result.is_system_error:
             return {**base, "nama_bank": f"⚠ {result.error}", "hasil": "ERROR"}
-        # Rekening definitif tidak ada
-        return {**base, "nama_bank": "-", "hasil": "TIDAK VALID"}
+        # Rekening definitif tidak ada, tampilkan pesan dari API agar transparan
+        api_err = result.error if result.error else "Tidak Ditemukan"
+        return {**base, "nama_bank": f"API: {api_err}", "hasil": "TIDAK VALID"}
 
     nama_bank = result.account_name
 
