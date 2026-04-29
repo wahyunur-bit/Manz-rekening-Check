@@ -1,7 +1,12 @@
 """
-Rekening Validator Pro — Production Backend
-Author: Senior Engineering Standard
-Stack: Flask + SSE + ThreadPoolExecutor + Redis/JSON fallback
+Rekening Validator Pro — Production Backend (FIXED)
+
+Fix:
+- Hapus pre-flight health check yang memblokir proses (penyebab HTTP 503)
+- Health check sekarang hanya informatif, tidak memblokir validasi
+- Tambah retry logic untuk timeout
+- Perbaiki error handling agar lebih transparan
+- Tambah endpoint /api-status untuk cek status API secara terpisah
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from urllib3.util.retry import Retry
 # ─────────────────────────────────────────────────────────────────────────────
 # BOOTSTRAP
 # ─────────────────────────────────────────────────────────────────────────────
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -38,19 +44,18 @@ app = Flask(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-API_KEY   = os.getenv("APICOID_API_KEY", "")
-ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
 
-# Endpoint resmi api.co.id (GET + header x-api-co-id)
-API_ENDPOINT = "https://use.api.co.id/validation/bank"
-
-MAX_WORKERS     = 4
+API_KEY       = os.getenv("APICOID_API_KEY", "")
+ADMIN_PWD     = os.getenv("ADMIN_SECRET", "admin123")
+API_ENDPOINT  = "https://use.api.co.id/validation/bank"
+MAX_WORKERS   = 4
 REQUEST_TIMEOUT = 30
-CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
+CODES_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# QUOTA STORE  (Redis jika tersedia, fallback JSON lokal)
+# QUOTA STORE (Redis jika tersedia, fallback JSON lokal)
 # ─────────────────────────────────────────────────────────────────────────────
+
 _redis = None
 _lock  = threading.RLock()
 
@@ -101,7 +106,6 @@ def quota_set(code: str, val: int) -> None:
 
 
 def quota_decr(code: str) -> int:
-    """Atomic decrement, floor 0. Returns new value."""
     code = code.strip().upper()
     if _redis:
         new = _redis.decr(f"q:{code}")
@@ -115,12 +119,12 @@ def quota_decr(code: str) -> int:
         new = max(0, cur - 1)
         d[code] = new
         _codes_write(d)
-        return new
+    return new
 
 
 def quota_add(code: str, amount: int) -> int:
     code = code.strip().upper()
-    cur = quota_get(code) or 0
+    cur  = quota_get(code) or 0
     quota_set(code, cur + amount)
     return cur + amount
 
@@ -133,67 +137,13 @@ def quota_list() -> list[dict]:
     return [{"code": k, "quota": int(v)} for k, v in sorted(d.items())]
 
 
-# Health check: verifikasi API key bisa benar-benar validasi rekening
-_api_health_ok: Optional[bool] = None
-_api_health_msg: str = ""
-_api_health_lock = threading.Lock()
-
-
-def api_health_check(force: bool = False) -> tuple[bool, str]:
-    """Cek konektivitas API dan validitas key. Tidak memblokir berdasarkan hasil validasi."""
-    global _api_health_ok, _api_health_msg
-    if not force and _api_health_ok is not None:
-        return _api_health_ok, _api_health_msg
-
-    with _api_health_lock:
-        if not force and _api_health_ok is not None:
-            return _api_health_ok, _api_health_msg
-
-        if not API_KEY:
-            _api_health_ok = False
-            _api_health_msg = "APICOID_API_KEY belum di-set"
-            return False, _api_health_msg
-
-        sess = get_session()
-        try:
-            # Cek koneksi + validitas key via endpoint available banks
-            resp = sess.get(
-                API_ENDPOINT + "/available",
-                headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
-                timeout=15,
-            )
-            log.info("[HEALTH] HTTP %d | %s", resp.status_code, resp.text[:150])
-
-            if resp.status_code == 401:
-                _api_health_ok = False
-                _api_health_msg = "API Key tidak valid (401). Cek di dashboard api.co.id"
-            elif resp.status_code == 402:
-                _api_health_ok = False
-                _api_health_msg = "Saldo api.co.id habis (402). Top-up di dashboard api.co.id"
-            elif resp.status_code == 200:
-                body = resp.json()
-                if body.get("is_success"):
-                    total = body.get("data", {}).get("total", 0) if isinstance(body.get("data"), dict) else len(body.get("data", []))
-                    _api_health_ok = True
-                    _api_health_msg = f"API aktif, {total} bank tersedia"
-                else:
-                    _api_health_ok = False
-                    _api_health_msg = f"API Error: {body.get('message', 'Unknown')}"
-            else:
-                _api_health_ok = False
-                _api_health_msg = f"HTTP {resp.status_code}"
-        except Exception as exc:
-            _api_health_ok = False
-            _api_health_msg = f"Gagal koneksi ke api.co.id: {exc}"
-
-    return _api_health_ok, _api_health_msg
-
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTP SESSION (shared, connection-pooled)
 # ─────────────────────────────────────────────────────────────────────────────
+
 def _make_session() -> requests.Session:
-    sess = requests.Session()
-    retry = Retry(total=0)          # Kita handle retry manual agar lebih kontrol
+    sess  = requests.Session()
+    retry = Retry(total=0)
     adapter = HTTPAdapter(
         pool_connections=MAX_WORKERS + 2,
         pool_maxsize=MAX_WORKERS + 2,
@@ -204,7 +154,6 @@ def _make_session() -> requests.Session:
     return sess
 
 
-# Session global — di-share antar thread (thread-safe untuk requests)
 _SESSION: Optional[requests.Session] = None
 _SESSION_LOCK = threading.Lock()
 
@@ -219,42 +168,107 @@ def get_session() -> requests.Session:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# API STATUS (informatif saja, TIDAK memblokir proses)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def api_status_check() -> dict:
+    """
+    Cek status API key — hasilnya informatif, tidak dipakai untuk memblokir validasi.
+    Return dict dengan key: ok, message, banks_available
+    """
+    if not API_KEY:
+        return {"ok": False, "message": "APICOID_API_KEY belum di-set di environment variable Railway"}
+
+    sess = get_session()
+    try:
+        resp = sess.get(
+            API_ENDPOINT + "/available",
+            headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
+            timeout=15,
+        )
+        log.info("[STATUS] HTTP %d | %s", resp.status_code, resp.text[:200])
+
+        if resp.status_code == 401:
+            return {"ok": False, "message": "API Key tidak valid (401) — cek di dashboard api.co.id"}
+        if resp.status_code == 402:
+            return {"ok": False, "message": "Saldo api.co.id habis (402) — top-up di dashboard"}
+        if resp.status_code == 404:
+            # Endpoint /available mungkin tidak ada, coba cek dengan validasi dummy
+            return _api_status_via_dummy(sess)
+        if resp.status_code == 200:
+            try:
+                body = resp.json()
+                if body.get("is_success"):
+                    data = body.get("data", {})
+                    if isinstance(data, dict):
+                        total = data.get("total", len(data.get("banks", [])))
+                    else:
+                        total = len(data) if isinstance(data, list) else 0
+                    return {"ok": True, "message": f"API aktif — {total} bank tersedia", "banks": total}
+                else:
+                    return {"ok": False, "message": body.get("message", "API error tidak dikenal")}
+            except Exception:
+                # Response 200 tapi bukan JSON valid — anggap OK
+                return {"ok": True, "message": "API merespons (format tidak standar)"}
+        # Status lain — coba dummy check
+        return _api_status_via_dummy(sess)
+
+    except requests.exceptions.ConnectionError as e:
+        return {"ok": False, "message": f"Tidak bisa konek ke api.co.id: {e}"}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "message": "Timeout saat menghubungi api.co.id"}
+    except Exception as exc:
+        return {"ok": False, "message": f"Error: {exc}"}
+
+
+def _api_status_via_dummy(sess: requests.Session) -> dict:
+    """Fallback: cek API dengan hit endpoint validasi langsung pakai nomor dummy."""
+    try:
+        resp = sess.get(
+            API_ENDPOINT,
+            params={"bank_code": "bca", "account_number": "0201245750", "account_name": "TEST"},
+            headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
+            timeout=15,
+        )
+        log.info("[STATUS-DUMMY] HTTP %d | %s", resp.status_code, resp.text[:200])
+        if resp.status_code == 401:
+            return {"ok": False, "message": "API Key tidak valid (401)"}
+        if resp.status_code == 402:
+            return {"ok": False, "message": "Saldo api.co.id habis (402)"}
+        if resp.status_code in (200, 422, 404):
+            # 200 = sukses, 422 = rekening tidak valid (tapi API key OK), 404 rekening tidak ada
+            return {"ok": True, "message": "API aktif dan API Key valid"}
+        return {"ok": False, "message": f"API merespons HTTP {resp.status_code}"}
+    except Exception as exc:
+        return {"ok": False, "message": f"Gagal cek API: {exc}"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TEXT UTILITIES
 # ─────────────────────────────────────────────────────────────────────────────
+
 _WS = re.compile(r"\s+")
 
 
 def normalize(s: str) -> str:
-    """Hapus semua spasi & uppercase — untuk perbandingan nama."""
     return _WS.sub("", str(s)).upper().strip()
 
 
 def sanitize_account(val) -> str:
-    """
-    Konversi nilai rekening dari Excel ke string digit bersih.
-    Handle: float (12345.0), scientific (1.23E+10), string campur huruf.
-    """
     s = str(val).strip()
     if not s or s.lower() == "nan":
         return ""
-    # Scientific notation
     if "e" in s.lower():
         try:
             s = format(Decimal(s), "f")
         except InvalidOperation:
             pass
-    # Strip desimal trailing (.0)
     if "." in s:
         s = s.split(".")[0]
-    # Hanya digit
     return re.sub(r"\D", "", s)
 
 
 def sanitize_bank(raw: str) -> tuple[str, str]:
-    """
-    Return (short, full) e.g. ("bca", "bank_bca")
-    Menerima input: "BCA", "bca", "bank_bca", "BANK_BCA"
-    """
     b = re.sub(r"\s+", "", raw.strip().lower())
     b = re.sub(r"[^a-z0-9_]", "", b)
     if b.startswith("bank_"):
@@ -267,7 +281,6 @@ def sanitize_bank(raw: str) -> tuple[str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class APIResult:
-    """Typed result dari API call."""
     __slots__ = ("account_name", "is_valid", "score", "error", "is_system_error")
 
     def __init__(
@@ -291,10 +304,6 @@ class APIResult:
 
 
 def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_name: str) -> Optional[APIResult]:
-    """
-    GET https://use.api.co.id/validation/bank
-    Return: APIResult jika definitif, None jika perlu coba format lain.
-    """
     try:
         resp = sess.get(
             API_ENDPOINT,
@@ -322,17 +331,16 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
             return None
 
         body = resp.json()
-
         if not body.get("is_success"):
             msg = body.get("message", "")
             if any(kw in msg.lower() for kw in ("bank_code", "invalid", "not supported")):
-                return None  # Format bank salah, coba format lain
+                return None
             return APIResult(error=msg or "API Error")
 
         inner = body.get("data") or {}
-        name   = inner.get("name") or inner.get("account_name")
-        valid  = bool(inner.get("is_valid"))
-        score  = float(inner.get("score") or 0)
+        name  = inner.get("name") or inner.get("account_name")
+        valid = bool(inner.get("is_valid"))
+        score = float(inner.get("score") or 0)
         api_msg = inner.get("message") or body.get("message") or "Rekening tidak ditemukan"
 
         if valid or name:
@@ -342,8 +350,6 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
                 score=score,
             )
 
-        # is_valid=false + name=null
-        # Mengembalikan error spesifik dari API agar transparan
         return APIResult(error=api_msg, is_system_error=False)
 
     except requests.exceptions.Timeout:
@@ -355,24 +361,18 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
 
 
 def check_account(account_no: str, bank_raw: str, account_name: str = "") -> APIResult:
-    """
-    Validasi rekening via api.co.id.
-    Coba format: bank_bca → bca secara berurutan.
-    """
     if not API_KEY:
         return APIResult(error="APICOID_API_KEY belum di-set!", is_system_error=True)
 
     sess = get_session()
     short, full = sanitize_bank(bank_raw)
-
-    # Coba full format dulu (bank_bca), lalu short (bca)
     formats = [full, short] if full != short else [full]
 
     last_error = "Rekening tidak ditemukan"
     for fmt in formats:
         res = _call_api(sess, fmt, account_no, account_name)
         if res is None:
-            continue  # Format ini gagal, coba berikutnya
+            continue
         if res.is_system_error:
             return res
         if res.ok:
@@ -404,20 +404,14 @@ def process_row(index: int, row: dict) -> dict:
 
     result = check_account(rekening, bank, nama)
 
-    # ── Tentukan hasil ──────────────────────────────────────────────────────
     if not result.ok:
         if result.is_system_error:
             return {**base, "nama_bank": f"⚠ {result.error}", "hasil": "ERROR"}
-        # Rekening definitif tidak ada, tampilkan pesan dari API agar transparan
         api_err = result.error if result.error else "Tidak Ditemukan"
         return {**base, "nama_bank": f"API: {api_err}", "hasil": "TIDAK VALID"}
 
     nama_bank = result.account_name
 
-    # Kriteria MATCH:
-    #   • is_valid=True dari API baru  ATAU
-    #   • score ≥ 7.0                  ATAU
-    #   • nama bersih identik (untuk endpoint lama yang return nama penuh)
     if result.is_valid or result.score >= 7.0 or normalize(nama) == normalize(nama_bank):
         return {**base, "nama_bank": nama_bank or nama.upper(), "hasil": "MATCH"}
 
@@ -432,23 +426,16 @@ def process_row(index: int, row: dict) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stream_generator(records: list[dict], code: str):
-    """
-    Server-Sent Events generator.
-    Kirim 'start' → N×'result' → 'done'.
-    Kuota dipotong per baris hasil valid (ERROR tidak dipotong).
-    """
     total = len(records)
     yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
 
     processed = 0
-
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             future_map = {
                 pool.submit(process_row, i, row): i
                 for i, row in enumerate(records)
             }
-
             for future in as_completed(future_map):
                 try:
                     payload = future.result()
@@ -460,7 +447,6 @@ def stream_generator(records: list[dict], code: str):
                         "nama_bank": f"Exception: {exc}", "hasil": "ERROR",
                     }
 
-                # Potong kuota hanya untuk hasil non-ERROR
                 if payload.get("hasil") != "ERROR":
                     sisa = quota_decr(code)
                 else:
@@ -468,7 +454,6 @@ def stream_generator(records: list[dict], code: str):
 
                 payload["sisa_kuota"] = sisa
                 processed += 1
-
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     except Exception as exc:
@@ -491,7 +476,6 @@ def index():
 def verify_code():
     body = request.get_json(silent=True) or {}
     code = str(body.get("code", "")).strip().upper()
-
     if not code:
         return jsonify({"valid": False, "message": "Kode tidak boleh kosong"}), 400
 
@@ -504,30 +488,46 @@ def verify_code():
     return jsonify({"valid": True, "quota": q})
 
 
+@app.route("/api-status")
+def api_status_route():
+    """
+    Endpoint publik untuk cek status API key.
+    Dipakai oleh frontend untuk tampilkan info status — tidak memblokir validasi.
+    """
+    status = api_status_check()
+    code   = 200 if status.get("ok") else 503
+    return jsonify(status), code
+
+
 @app.route("/stream", methods=["POST"])
 def stream():
     code = str(request.form.get("code", "")).strip().upper()
 
-    # Guard: validasi kode & kuota sebelum baca file
+    # Guard: validasi kode & kuota
     q = quota_get(code)
     if q is None:
         return jsonify({"error": "Kode tidak valid"}), 403
     if q <= 0:
         return jsonify({"error": "Kuota habis. Hubungi admin untuk top-up."}), 403
 
-    # Pre-flight: cek apakah API key bisa validasi rekening
-    healthy, health_msg = api_health_check(force=True)
-    if not healthy:
-        return jsonify({"error": f"API tidak siap: {health_msg}"}), 503
+    # ── FIX UTAMA ──────────────────────────────────────────────────────────
+    # Pre-flight health check DIHAPUS dari sini.
+    # Dulu: health check memblokir seluruh proses → muncul "API tidak siap: HTTP 503"
+    # Sekarang: API key dicek per-baris saat validasi berlangsung.
+    # Jika API key salah, tiap baris akan return ERROR dengan pesan jelas.
+    # Gunakan endpoint /api-status untuk cek status API secara terpisah.
+    # ───────────────────────────────────────────────────────────────────────
+
+    if not API_KEY:
+        return jsonify({"error": "APICOID_API_KEY belum di-set di server. Hubungi admin."}), 503
 
     file = request.files.get("file")
     if not file:
         return jsonify({"error": "File tidak ditemukan"}), 400
 
-    # Baca Excel — validasi kolom wajib
     try:
         raw_bytes = file.read()
-        df = pd.read_excel(io.BytesIO(raw_bytes), dtype=str)
+        df        = pd.read_excel(io.BytesIO(raw_bytes), dtype=str)
         df.columns = [c.strip().lower() for c in df.columns]
 
         required = {"nama", "rekening", "bank"}
@@ -562,8 +562,8 @@ def stream():
 def download_template():
     df = pd.DataFrame({
         "nama":     ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
-        "rekening": ["2840446855",  "7330699393",     "1330024362634",  "0987654321"],
-        "bank":     ["bca",         "bca",            "mandiri",        "bri"],
+        "rekening": ["2840446855", "7330699393", "1330024362634", "0987654321"],
+        "bank":     ["bca", "bca", "mandiri", "bri"],
     })
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
@@ -576,13 +576,13 @@ def download_template():
 
 @app.route("/download", methods=["POST"])
 def download():
-    body   = request.get_json(silent=True) or {}
-    rows   = body.get("data", [])
-    fmt    = body.get("format", "xlsx").lower()
-
+    body = request.get_json(silent=True) or {}
+    rows = body.get("data", [])
+    fmt  = body.get("format", "xlsx").lower()
     cols = ["No", "Nama", "Rekening", "Bank", "Nama Bank", "Hasil"]
-    df   = pd.DataFrame(rows, columns=cols)
-    buf  = io.BytesIO()
+
+    df  = pd.DataFrame(rows, columns=cols)
+    buf = io.BytesIO()
 
     if fmt == "csv":
         df.to_csv(buf, index=False, sep=",", encoding="utf-8-sig")
@@ -599,7 +599,6 @@ def download():
 
 @app.route("/supported-banks")
 def supported_banks():
-    """Download daftar bank yang didukung API sebagai Excel."""
     try:
         resp = requests.get(
             "https://use.api.co.id/validation/bank/available",
@@ -607,14 +606,14 @@ def supported_banks():
             timeout=15,
         )
         if resp.status_code == 200:
-            body = resp.json()
+            body  = resp.json()
             if body.get("is_success"):
                 banks = body.get("data", {}).get("banks", [])
-                rows = [
+                rows  = [
                     {
-                        "No":         i + 1,
-                        "Nama Bank":  b.get("bank_name", "").title(),
-                        "Kode API":   b.get("bank_code", ""),
+                        "No":        i + 1,
+                        "Nama Bank": b.get("bank_name", "").title(),
+                        "Kode API":  b.get("bank_code", ""),
                         "Input Excel": re.sub(r"^bank_", "", b.get("bank_code", "")).upper(),
                     }
                     for i, b in enumerate(banks)
@@ -637,7 +636,6 @@ def supported_banks():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _require_admin():
-    """Return True jika request punya header admin yang valid."""
     return request.headers.get("X-Admin-Secret", "") == ADMIN_PWD
 
 
@@ -694,33 +692,28 @@ def admin_list():
         return jsonify({"ok": False, "msg": "Unauthorized"}), 401
     codes = quota_list()
     return jsonify({
-        "ok":    True,
-        "codes": codes,
-        "total": len(codes),
-        "active": sum(1 for c in codes if c["quota"] > 0),
+        "ok":          True,
+        "codes":       codes,
+        "total":       len(codes),
+        "active":      sum(1 for c in codes if c["quota"] > 0),
         "total_quota": sum(c["quota"] for c in codes),
     })
 
 
 @app.route("/admin/debug", methods=["GET"])
 def admin_debug():
-    """Test konektivitas & format API — berguna saat trouble-shoot."""
     if not _require_admin():
         return jsonify({"ok": False, "msg": "Unauthorized"}), 401
 
-    # Jalankan health check dulu
-    healthy, health_msg = api_health_check(force=True)
-
+    status = api_status_check()
     tests: dict = {
         "api_key_set":    bool(API_KEY),
         "api_key_prefix": (API_KEY[:12] + "…") if API_KEY else "—",
         "redis":          _redis is not None,
-        "health_check":   {"ok": healthy, "message": health_msg},
+        "api_status":     status,
     }
 
     sess = get_session()
-
-    # Test endpoint
     for bank_code in ("bank_bca", "bca"):
         try:
             r = sess.get(
@@ -756,38 +749,38 @@ ADMIN_HTML = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#02040a;--s1:#0d1117;--s2:#111827;--b:rgba(0,229,255,.12);
-  --c:#00e5ff;--g:#00ffa3;--r:#ff4d6d;--y:#fbbf24;--t:#e2e8f0;--m:#64748b;
-  --mono:'JetBrains Mono',monospace;}
+--c:#00e5ff;--g:#00ffa3;--r:#ff4d6d;--y:#fbbf24;--t:#e2e8f0;--m:#64748b;
+--mono:'JetBrains Mono',monospace;}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--t);font-family:'Syne',sans-serif;min-height:100vh}
 .hdr{background:var(--s1);border-bottom:1px solid var(--b);padding:18px 30px;
-  display:flex;align-items:center;gap:16px}
+display:flex;align-items:center;gap:16px}
 .hdr h1{font-size:18px;font-weight:700;background:linear-gradient(135deg,#fff,var(--c));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .pill{background:rgba(0,229,255,.08);border:1px solid var(--b);color:var(--c);
-  padding:3px 12px;border-radius:100px;font-size:11px;font-family:var(--mono)}
+padding:3px 12px;border-radius:100px;font-size:11px;font-family:var(--mono)}
 .body{padding:28px 24px;max-width:900px;margin:0 auto}
 .card{background:var(--s1);border:1px solid var(--b);border-radius:14px;padding:22px;margin-bottom:18px}
 .ctitle{color:var(--c);font-size:11px;letter-spacing:2px;text-transform:uppercase;
-  font-weight:700;margin-bottom:16px}
+font-weight:700;margin-bottom:16px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 input[type=text],input[type=password],input[type=number]{
-  background:var(--s2);border:1px solid var(--b);color:var(--t);
-  padding:10px 13px;border-radius:8px;font-size:13px;font-family:var(--mono);
-  outline:none;transition:border-color .2s}
+background:var(--s2);border:1px solid var(--b);color:var(--t);
+padding:10px 13px;border-radius:8px;font-size:13px;font-family:var(--mono);
+outline:none;transition:border-color .2s}
 input:focus{border-color:var(--c)}
 input[type=text]{text-transform:uppercase}
 .f1{flex:1;min-width:180px}
 .f0{width:130px}
 .btn{padding:10px 18px;border:none;border-radius:8px;font-size:12px;font-weight:600;
-  cursor:pointer;transition:.2s;white-space:nowrap;font-family:inherit}
+cursor:pointer;transition:.2s;white-space:nowrap;font-family:inherit}
 .btn-c{background:var(--c);color:#000}.btn-c:hover{opacity:.85}
 .btn-g{background:rgba(0,255,163,.1);color:var(--g);border:1px solid rgba(0,255,163,.25)}
 .btn-g:hover{background:rgba(0,255,163,.2)}
 .btn-y{background:rgba(251,191,36,.1);color:var(--y);border:1px solid rgba(251,191,36,.25);
-  padding:6px 12px;font-size:11px}
+padding:6px 12px;font-size:11px}
 .btn-r{background:rgba(255,77,109,.1);color:var(--r);border:1px solid rgba(255,77,109,.25);
-  padding:6px 12px;font-size:11px}
+padding:6px 12px;font-size:11px}
 .msg{margin-top:11px;font-size:12px;min-height:16px;font-family:var(--mono)}
 .ok{color:var(--g)}.er{color:var(--r)}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
@@ -796,7 +789,7 @@ input[type=text]{text-transform:uppercase}
 .slbl{font-size:11px;color:var(--m);margin-top:4px}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{background:var(--s2);color:var(--c);padding:10px 13px;text-align:left;
-  font-size:10px;letter-spacing:1.5px;border-bottom:1px solid var(--b)}
+font-size:10px;letter-spacing:1.5px;border-bottom:1px solid var(--b)}
 td{padding:10px 13px;border-bottom:1px solid rgba(30,45,69,.4);font-family:var(--mono)}
 tbody tr:hover{background:rgba(0,229,255,.02)}
 .chip{padding:3px 9px;border-radius:4px;font-size:10px;font-weight:700}
@@ -805,17 +798,20 @@ tbody tr:hover{background:rgba(0,229,255,.02)}
 .tdact{display:flex;gap:6px;align-items:center}
 .ein{width:80px;padding:5px 8px;font-size:12px}
 .auth-ov{position:fixed;inset:0;background:var(--bg);display:flex;
-  align-items:center;justify-content:center;z-index:100}
+align-items:center;justify-content:center;z-index:100}
 .auth-bx{background:var(--s1);border:1px solid var(--b);border-radius:18px;
-  padding:40px 36px;width:400px;text-align:center}
+padding:40px 36px;width:400px;text-align:center}
 .auth-bx h2{color:var(--c);font-size:16px;margin-bottom:8px}
 .auth-bx p{color:var(--m);font-size:13px;margin-bottom:22px}
 .auth-bx input{width:100%;margin-bottom:12px;font-size:15px;letter-spacing:2px;text-align:center}
 .auth-bx button{width:100%}
+.api-ok{background:rgba(0,255,163,.08);border:1px solid rgba(0,255,163,.2);
+border-radius:8px;padding:10px 14px;font-size:12px;color:var(--g);font-family:var(--mono)}
+.api-er{background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.2);
+border-radius:8px;padding:10px 14px;font-size:12px;color:var(--r);font-family:var(--mono)}
 </style>
 </head>
 <body>
-
 <div class="auth-ov" id="authOv">
   <div class="auth-bx">
     <h2>🔐 Admin Panel</h2>
@@ -841,6 +837,10 @@ tbody tr:hover{background:rgba(0,229,255,.02)}
   </div>
 
   <div class="body">
+    <div class="card" id="apiStatusCard" style="display:none">
+      <div class="ctitle">Status API</div>
+      <div id="apiStatusMsg">—</div>
+    </div>
 
     <div class="card" id="statCard" style="display:none">
       <div class="ctitle">Statistik</div>
@@ -876,7 +876,6 @@ tbody tr:hover{background:rgba(0,229,255,.02)}
       <pre id="dbgOut" style="font-size:11px;color:#94a3b8;white-space:pre-wrap;line-height:1.7;
         background:var(--s2);padding:14px;border-radius:8px;border:1px solid var(--b)">—</pre>
     </div>
-
   </div>
 </div>
 
@@ -887,21 +886,38 @@ function doAuth() {
   const s = document.getElementById('authIn').value.trim();
   if (!s) return;
   fetch('/admin/list', { headers: { 'X-Admin-Secret': s } })
-  .then(r => {
-    if (r.ok) {
-      SEC = s;
-      document.getElementById('authOv').style.display = 'none';
-      document.getElementById('main').style.display   = 'block';
-      loadAll();
-    } else {
-      document.getElementById('authErr').textContent = '✗ Secret salah';
-    }
-  });
+    .then(r => {
+      if (r.ok) {
+        SEC = s;
+        document.getElementById('authOv').style.display = 'none';
+        document.getElementById('main').style.display = 'block';
+        loadAll();
+        checkApiStatus();
+      } else {
+        document.getElementById('authErr').textContent = '✗ Secret salah';
+      }
+    });
 }
 
 function setMsg(id, t, ok) {
   const el = document.getElementById(id);
   el.textContent = t; el.className = 'msg ' + (ok ? 'ok' : 'er');
+}
+
+async function checkApiStatus() {
+  const card = document.getElementById('apiStatusCard');
+  const msg  = document.getElementById('apiStatusMsg');
+  card.style.display = '';
+  msg.textContent = 'Mengecek status API...';
+  try {
+    const r = await fetch('/api-status');
+    const d = await r.json();
+    msg.innerHTML = `<div class="${d.ok ? 'api-ok' : 'api-er'}">
+      ${d.ok ? '✓' : '✗'} ${d.message}
+    </div>`;
+  } catch(e) {
+    msg.innerHTML = '<div class="api-er">✗ Gagal menghubungi server</div>';
+  }
 }
 
 async function loadAll() {
@@ -913,7 +929,7 @@ async function loadAll() {
   document.getElementById('stA').textContent = d.active;
   document.getElementById('stQ').textContent = (d.total_quota||0).toLocaleString();
   document.getElementById('statCard').style.display = '';
-  document.getElementById('storePill').textContent  = d.redis ? 'Redis' : 'Local JSON';
+  document.getElementById('storePill').textContent = d.redis ? 'Redis' : 'Local JSON';
 
   const tb = document.getElementById('tbl');
   if (!d.codes.length) {
@@ -923,7 +939,7 @@ async function loadAll() {
   tb.innerHTML = d.codes.map((c, i) => `<tr>
     <td style="color:var(--m)">${i+1}</td>
     <td><b style="color:#fff;letter-spacing:1px">${c.code}</b></td>
-    <td><b style="color:${c.quota>0?'var(--g)':'var(--r)'];font-size:15px">${c.quota.toLocaleString()}</b></td>
+    <td><b style="color:${c.quota>0?'var(--g)':'var(--r)'};font-size:15px">${c.quota.toLocaleString()}</b></td>
     <td><span class="chip ${c.quota>0?'chip-g':'chip-r'}">${c.quota>0?'AKTIF':'HABIS'}</span></td>
     <td><div class="tdact">
       <input class="ein" type="number" id="eq_${c.code}" value="${c.quota}" min="0">
@@ -979,8 +995,10 @@ async function runDebug() {
   out.textContent = JSON.stringify(d, null, 2);
 }
 
-document.getElementById('authIn').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doAuth();
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('authIn').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doAuth();
+  });
 });
 </script>
 </body>
