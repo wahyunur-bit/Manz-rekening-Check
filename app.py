@@ -18,10 +18,11 @@ from typing import Optional
 
 import pandas as pd
 import requests
-from flask import Flask, Response, jsonify, render_template, request, send_file
+from flask import Flask, Response, jsonify, render_template, request, send_file, session, redirect, url_for
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from functools import wraps
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BOOTSTRAP
@@ -34,12 +35,14 @@ logging.basicConfig(
 log = logging.getLogger("validator")
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-API_KEY   = os.getenv("APICOID_API_KEY", "")
-ADMIN_PWD = os.getenv("ADMIN_SECRET", "admin123")
+API_KEY    = os.getenv("APICOID_API_KEY", "")
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")
 
 # Endpoint resmi api.co.id (GET + header x-api-co-id)
 API_ENDPOINT = "https://use.api.co.id/validation/bank"
@@ -369,15 +372,27 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
     formats = [full, short] if full != short else [full]
 
     last_error = "Rekening tidak ditemukan"
+    
+    # Tahap 1: Coba semua format dengan hint Nama
     for fmt in formats:
         res = _call_api(sess, fmt, account_no, account_name)
         if res is None:
-            continue  # Format ini gagal, coba berikutnya
+            continue
         if res.is_system_error:
             return res
         if res.ok:
             return res
         last_error = res.error
+
+    # Tahap 2: Fallback — Coba tanpa hint Nama (Seringkali memperbaiki 'Validation failed')
+    # Jika gagal dengan nama, coba ambil data mentah tanpa parameter nama.
+    if account_name:
+        for fmt in formats:
+            res = _call_api(sess, fmt, account_no, "")
+            if res and res.ok:
+                return res
+            if res and res.is_system_error:
+                return res
 
     return APIResult(error=last_error)
 
@@ -417,8 +432,12 @@ def process_row(index: int, row: dict) -> dict:
     # Kriteria MATCH:
     #   • is_valid=True dari API baru  ATAU
     #   • score ≥ 7.0                  ATAU
-    #   • nama bersih identik (untuk endpoint lama yang return nama penuh)
-    if result.is_valid or result.score >= 7.0 or normalize(nama) == normalize(nama_bank):
+    #   • nama bersih identik          ATAU
+    #   • nama input adalah bagian dari nama bank (Fuzzy/Partial Match)
+    n_input = normalize(nama)
+    n_bank  = normalize(nama_bank)
+
+    if result.is_valid or result.score >= 7.0 or n_input == n_bank or (n_input and n_input in n_bank):
         return {**base, "nama_bank": nama_bank or nama.upper(), "hasil": "MATCH"}
 
     if nama_bank:
@@ -560,16 +579,17 @@ def stream():
 
 @app.route("/template")
 def download_template():
+    # Sesuai permintaan: Hanya berisi rekening WAHYU NUR IMAN yang asli
     df = pd.DataFrame({
-        "nama":     ["TEGUH HASYA", "BAMBANG SUGITO", "WAHYU NUR IMAN", "SITI RAHAYU"],
-        "rekening": ["2840446855",  "7330699393",     "1330024362634",  "0987654321"],
-        "bank":     ["bca",         "bca",            "mandiri",        "bri"],
+        "nama":     ["WAHYU NUR IMAN"],
+        "rekening": ["1330024362634"],
+        "bank":     ["mandiri"],
     })
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
     buf.seek(0)
     return send_file(
-        buf, as_attachment=True, download_name="template.xlsx",
+        buf, as_attachment=True, download_name="template_rekening.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -633,12 +653,39 @@ def supported_banks():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FLASK ROUTES — Admin API
+# ADMIN AUTHENTICATION
 # ─────────────────────────────────────────────────────────────────────────────
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        user = request.form.get("username")
+        pwd  = request.form.get("password")
+        if user == ADMIN_USER and pwd == ADMIN_PWD:
+            session["logged_in"] = True
+            return redirect(url_for("admin_panel"))
+        return render_template("login.html", error="Username atau Password salah")
+    return render_template("login.html")
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("admin_login"))
+
+
 def _require_admin():
-    """Return True jika request punya header admin yang valid."""
-    return request.headers.get("X-Admin-Secret", "") == ADMIN_PWD
+    """Support untuk API call lama (header) atau Session."""
+    return session.get("logged_in") or request.headers.get("X-Admin-Secret", "") == ADMIN_PWD
 
 
 @app.route("/admin/add", methods=["POST"])
@@ -743,248 +790,9 @@ def admin_debug():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/admin")
+@login_required
 def admin_panel():
-    return ADMIN_HTML
-
-
-ADMIN_HTML = r"""<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin — Rekening Validator Pro</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-:root{--bg:#02040a;--s1:#0d1117;--s2:#111827;--b:rgba(0,229,255,.12);
-  --c:#00e5ff;--g:#00ffa3;--r:#ff4d6d;--y:#fbbf24;--t:#e2e8f0;--m:#64748b;
-  --mono:'JetBrains Mono',monospace;}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--t);font-family:'Syne',sans-serif;min-height:100vh}
-.hdr{background:var(--s1);border-bottom:1px solid var(--b);padding:18px 30px;
-  display:flex;align-items:center;gap:16px}
-.hdr h1{font-size:18px;font-weight:700;background:linear-gradient(135deg,#fff,var(--c));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.pill{background:rgba(0,229,255,.08);border:1px solid var(--b);color:var(--c);
-  padding:3px 12px;border-radius:100px;font-size:11px;font-family:var(--mono)}
-.body{padding:28px 24px;max-width:900px;margin:0 auto}
-.card{background:var(--s1);border:1px solid var(--b);border-radius:14px;padding:22px;margin-bottom:18px}
-.ctitle{color:var(--c);font-size:11px;letter-spacing:2px;text-transform:uppercase;
-  font-weight:700;margin-bottom:16px}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-input[type=text],input[type=password],input[type=number]{
-  background:var(--s2);border:1px solid var(--b);color:var(--t);
-  padding:10px 13px;border-radius:8px;font-size:13px;font-family:var(--mono);
-  outline:none;transition:border-color .2s}
-input:focus{border-color:var(--c)}
-input[type=text]{text-transform:uppercase}
-.f1{flex:1;min-width:180px}
-.f0{width:130px}
-.btn{padding:10px 18px;border:none;border-radius:8px;font-size:12px;font-weight:600;
-  cursor:pointer;transition:.2s;white-space:nowrap;font-family:inherit}
-.btn-c{background:var(--c);color:#000}.btn-c:hover{opacity:.85}
-.btn-g{background:rgba(0,255,163,.1);color:var(--g);border:1px solid rgba(0,255,163,.25)}
-.btn-g:hover{background:rgba(0,255,163,.2)}
-.btn-y{background:rgba(251,191,36,.1);color:var(--y);border:1px solid rgba(251,191,36,.25);
-  padding:6px 12px;font-size:11px}
-.btn-r{background:rgba(255,77,109,.1);color:var(--r);border:1px solid rgba(255,77,109,.25);
-  padding:6px 12px;font-size:11px}
-.msg{margin-top:11px;font-size:12px;min-height:16px;font-family:var(--mono)}
-.ok{color:var(--g)}.er{color:var(--r)}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.sbox{background:var(--s2);border:1px solid var(--b);border-radius:10px;padding:16px;text-align:center}
-.snum{font-size:26px;font-weight:700;color:var(--c);font-family:var(--mono)}
-.slbl{font-size:11px;color:var(--m);margin-top:4px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{background:var(--s2);color:var(--c);padding:10px 13px;text-align:left;
-  font-size:10px;letter-spacing:1.5px;border-bottom:1px solid var(--b)}
-td{padding:10px 13px;border-bottom:1px solid rgba(30,45,69,.4);font-family:var(--mono)}
-tbody tr:hover{background:rgba(0,229,255,.02)}
-.chip{padding:3px 9px;border-radius:4px;font-size:10px;font-weight:700}
-.chip-g{background:rgba(0,255,163,.12);color:var(--g)}
-.chip-r{background:rgba(255,77,109,.12);color:var(--r)}
-.tdact{display:flex;gap:6px;align-items:center}
-.ein{width:80px;padding:5px 8px;font-size:12px}
-.auth-ov{position:fixed;inset:0;background:var(--bg);display:flex;
-  align-items:center;justify-content:center;z-index:100}
-.auth-bx{background:var(--s1);border:1px solid var(--b);border-radius:18px;
-  padding:40px 36px;width:400px;text-align:center}
-.auth-bx h2{color:var(--c);font-size:16px;margin-bottom:8px}
-.auth-bx p{color:var(--m);font-size:13px;margin-bottom:22px}
-.auth-bx input{width:100%;margin-bottom:12px;font-size:15px;letter-spacing:2px;text-align:center}
-.auth-bx button{width:100%}
-</style>
-</head>
-<body>
-
-<div class="auth-ov" id="authOv">
-  <div class="auth-bx">
-    <h2>🔐 Admin Panel</h2>
-    <p>Masukkan Admin Secret untuk akses</p>
-    <input type="password" id="authIn" placeholder="Admin Secret"
-      onkeydown="if(event.key==='Enter')doAuth()">
-    <button class="btn btn-c" onclick="doAuth()">Login</button>
-    <div class="msg er" id="authErr"></div>
-  </div>
-</div>
-
-<div id="main" style="display:none">
-  <div class="hdr">
-    <h1>⚡ LICENSE MANAGER</h1>
-    <span class="pill" id="storePill">—</span>
-    <div style="margin-left:auto;display:flex;gap:8px">
-      <button class="btn btn-g" onclick="loadAll()" style="padding:7px 14px;font-size:11px">↻ Refresh</button>
-      <button class="btn" onclick="runDebug()"
-        style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.25);padding:7px 14px;font-size:11px">
-        🔧 Debug API
-      </button>
-    </div>
-  </div>
-
-  <div class="body">
-
-    <div class="card" id="statCard" style="display:none">
-      <div class="ctitle">Statistik</div>
-      <div class="grid3">
-        <div class="sbox"><div class="snum" id="stT">0</div><div class="slbl">Total Kode</div></div>
-        <div class="sbox"><div class="snum" id="stA">0</div><div class="slbl">Kode Aktif</div></div>
-        <div class="sbox"><div class="snum" id="stQ">0</div><div class="slbl">Total Kuota</div></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">➕ Tambah / Top-up Kode</div>
-      <div class="row">
-        <input type="text" class="f1" id="iCode" placeholder="MANZ-VIP-001">
-        <input type="number" class="f0" id="iQuota" value="100" min="1" placeholder="Kuota">
-        <button class="btn btn-g" onclick="addCode()">Tambah / Top-up</button>
-      </div>
-      <div class="msg" id="addMsg"></div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">📋 Daftar Kode</div>
-      <table>
-        <thead><tr><th>#</th><th>Kode Lisensi</th><th>Sisa Kuota</th><th>Status</th><th>Aksi</th></tr></thead>
-        <tbody id="tbl">
-          <tr><td colspan="5" style="text-align:center;color:var(--m);padding:28px">Memuat...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card" id="dbgCard" style="display:none">
-      <div class="ctitle">🔧 Debug API</div>
-      <pre id="dbgOut" style="font-size:11px;color:#94a3b8;white-space:pre-wrap;line-height:1.7;
-        background:var(--s2);padding:14px;border-radius:8px;border:1px solid var(--b)">—</pre>
-    </div>
-
-  </div>
-</div>
-
-<script>
-let SEC = '';
-
-function doAuth() {
-  const s = document.getElementById('authIn').value.trim();
-  if (!s) return;
-  fetch('/admin/list', { headers: { 'X-Admin-Secret': s } })
-  .then(r => {
-    if (r.ok) {
-      SEC = s;
-      document.getElementById('authOv').style.display = 'none';
-      document.getElementById('main').style.display   = 'block';
-      loadAll();
-    } else {
-      document.getElementById('authErr').textContent = '✗ Secret salah';
-    }
-  });
-}
-
-function setMsg(id, t, ok) {
-  const el = document.getElementById(id);
-  el.textContent = t; el.className = 'msg ' + (ok ? 'ok' : 'er');
-}
-
-async function loadAll() {
-  const r = await fetch('/admin/list', { headers: { 'X-Admin-Secret': SEC } });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  document.getElementById('stT').textContent = d.total;
-  document.getElementById('stA').textContent = d.active;
-  document.getElementById('stQ').textContent = (d.total_quota||0).toLocaleString();
-  document.getElementById('statCard').style.display = '';
-  document.getElementById('storePill').textContent  = d.redis ? 'Redis' : 'Local JSON';
-
-  const tb = document.getElementById('tbl');
-  if (!d.codes.length) {
-    tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--m);padding:28px">Belum ada kode</td></tr>';
-    return;
-  }
-  tb.innerHTML = d.codes.map((c, i) => `<tr>
-    <td style="color:var(--m)">${i+1}</td>
-    <td><b style="color:#fff;letter-spacing:1px">${c.code}</b></td>
-    <td><b style="color:${c.quota>0?'var(--g)':'var(--r)'];font-size:15px">${c.quota.toLocaleString()}</b></td>
-    <td><span class="chip ${c.quota>0?'chip-g':'chip-r'}">${c.quota>0?'AKTIF':'HABIS'}</span></td>
-    <td><div class="tdact">
-      <input class="ein" type="number" id="eq_${c.code}" value="${c.quota}" min="0">
-      <button class="btn btn-y" onclick="setQ('${c.code}')">Set</button>
-      <button class="btn btn-r" onclick="del('${c.code}')">Hapus</button>
-    </div></td>
-  </tr>`).join('');
-}
-
-async function addCode() {
-  const code  = document.getElementById('iCode').value.trim().toUpperCase();
-  const quota = parseInt(document.getElementById('iQuota').value);
-  if (!code)  return setMsg('addMsg','⚠ Isi kode',false);
-  if (!quota) return setMsg('addMsg','⚠ Kuota min 1',false);
-  const r = await fetch('/admin/add', {
-    method:'POST', headers:{'Content-Type':'application/json','X-Admin-Secret':SEC},
-    body: JSON.stringify({code,quota})
-  });
-  const d = await r.json();
-  setMsg('addMsg', d.ok ? `✓ Kode ${d.code} — Total kuota: ${d.quota}` : '✗ '+d.msg, d.ok);
-  if (d.ok) { document.getElementById('iCode').value=''; loadAll(); }
-}
-
-async function setQ(code) {
-  const quota = parseInt(document.getElementById('eq_'+code).value);
-  const r = await fetch('/admin/set', {
-    method:'POST', headers:{'Content-Type':'application/json','X-Admin-Secret':SEC},
-    body: JSON.stringify({code,quota})
-  });
-  const d = await r.json();
-  setMsg('addMsg', d.ok ? `✓ ${code} → ${quota}` : '✗ Gagal', d.ok);
-  if (d.ok) loadAll();
-}
-
-async function del(code) {
-  if (!confirm(`Hapus "${code}"?\nKonsumen tidak bisa login lagi.`)) return;
-  const r = await fetch('/admin/delete', {
-    method:'DELETE', headers:{'Content-Type':'application/json','X-Admin-Secret':SEC},
-    body: JSON.stringify({code})
-  });
-  const d = await r.json();
-  setMsg('addMsg', d.ok ? `✓ ${code} dihapus` : '✗ '+d.msg, d.ok);
-  if (d.ok) loadAll();
-}
-
-async function runDebug() {
-  const card = document.getElementById('dbgCard');
-  const out  = document.getElementById('dbgOut');
-  card.style.display = '';
-  out.textContent = 'Testing...';
-  const r = await fetch('/admin/debug', { headers:{'X-Admin-Secret':SEC} });
-  const d = await r.json();
-  out.textContent = JSON.stringify(d, null, 2);
-}
-
-document.getElementById('authIn').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doAuth();
-});
-</script>
-</body>
-</html>"""
+    return render_template("admin.html")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
