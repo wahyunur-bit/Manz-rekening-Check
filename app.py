@@ -240,6 +240,30 @@ def normalize(s: str) -> str:
     return _WS.sub("", str(s)).upper().strip()
 
 
+def fuzzy_match(input_name: str, bank_name: str) -> bool:
+    """Logika pencocokan nama yang sangat agresif (1 kata pun jadi)."""
+    if not input_name or not bank_name:
+        return False
+    
+    n_in = normalize(input_name)
+    n_bk = normalize(bank_name)
+    
+    # 1. Cek identik atau substring
+    if n_in == n_bk or n_in in n_bk or n_bk in n_in:
+        return True
+    
+    # 2. Tangani Masking Bintang (e.g. OKKY H*** vs OKKY)
+    # Jika salah satu cuma 1 kata, kita cek apakah kata itu ada di awal nama bank
+    clean_bk = n_bk.replace("*", "")
+    if len(clean_bk) >= 3:
+        if clean_bk.startswith(n_in) or n_in.startswith(clean_bk):
+            return True
+        if clean_bk in n_in or n_in in clean_bk:
+            return True
+        
+    return False
+
+
 def sanitize_account(val) -> str:
     """
     Konversi nilai rekening dari Excel ke string digit bersih.
@@ -353,19 +377,29 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
     if short not in formats: formats.append(short)
     if short.upper() not in formats: formats.append(short.upper())
     
-    # Tambahan khusus untuk BCA (beberapa API butuh nama lengkap)
+    # Tambahan khusus untuk BCA (beberapa API butuh nama lengkap atau format digital)
     if "bca" in short.lower():
-        for extra in ["CENTRAL_ASIA", "bank_central_asia"]:
+        for extra in ["CENTRAL_ASIA", "bank_central_asia", "BCA_DIGITAL", "DIGITAL_BCA"]:
             if extra not in formats: formats.append(extra)
 
     last_error = "Rekening tidak ditemukan"
     
-    # TAHAP 1: Cek tanpa nama hint (Paling Ampuh)
+    # TAHAP 1: Cek tanpa nama hint (Strategi pancing nama asli)
+    # Kita coba semua format satu per satu sampai dapat nama yang paling "bersih" (tanpa bintang jika mungkin)
+    best_res = None
     for fmt in formats:
         res = _call_api(sess, fmt, account_no, "")
-        if res and res.ok: return res
+        if res and res.ok:
+            # Jika dapat nama tanpa bintang, langsung kembalikan (Ini jackpot!)
+            if "*" not in res.account_name:
+                return res
+            # Simpan yang terbaik (yang ada namanya meskipun berbintang)
+            if not best_res or (len(res.account_name) > len(best_res.account_name)):
+                best_res = res
         if res and res.is_system_error: return res
         if res: last_error = res.error
+
+    if best_res: return best_res
 
     # TAHAP 2: Jika Tahap 1 gagal, coba dengan nama hint
     if account_name:
@@ -419,7 +453,7 @@ def process_row(index: int, row: dict) -> dict:
     n_input = normalize(nama)
     n_bank  = normalize(nama_bank)
 
-    if result.is_valid or result.score >= 7.0 or n_input == n_bank or (n_input and n_input in n_bank):
+    if result.is_valid or result.score >= 7.0 or fuzzy_match(nama, nama_bank):
         return {**base, "nama_bank": nama_bank or nama.upper(), "hasil": "MATCH"}
 
     if nama_bank:
@@ -452,25 +486,31 @@ def stream_generator(records: list[dict], code: str):
 
             for future in as_completed(future_map):
                 try:
+                    # Ambil hasil dari thread pool
                     payload = future.result()
+                    
+                    # ── PROTEKSI KUOTA REAL-TIME ────────────────────────────────────
+                    q_now = quota_get(code) or 0
+                    
+                    # Jika kuota habis, tapi thread terlanjur jalan, kita tandai baris ini
+                    if q_now <= 0 and payload.get("hasil") != "ERROR":
+                        payload["hasil"] = "TIDAK VALID"
+                        payload["nama_bank"] = "⚠ KUOTA HABIS"
+                        payload["sisa_kuota"] = 0
+                    else:
+                        # Potong kuota hanya untuk hasil non-ERROR
+                        if payload.get("hasil") != "ERROR":
+                            sisa = quota_decr(code)
+                        else:
+                            sisa = q_now
+                        payload["sisa_kuota"] = sisa
+
+                    processed += 1
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
                 except Exception as exc:
-                    idx = future_map[future]
-                    payload = {
-                        "type": "result", "index": idx + 1,
-                        "nama": "-", "rekening": "-", "bank": "-",
-                        "nama_bank": f"Exception: {exc}", "hasil": "ERROR",
-                    }
-
-                # Potong kuota hanya untuk hasil non-ERROR
-                if payload.get("hasil") != "ERROR":
-                    sisa = quota_decr(code)
-                else:
-                    sisa = quota_get(code) or 0
-
-                payload["sisa_kuota"] = sisa
-                processed += 1
-
-                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    log.error("Stream result error: %s", exc)
+                    continue
 
     except Exception as exc:
         yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
