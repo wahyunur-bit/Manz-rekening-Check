@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Admin Login — Rekening Validator</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #02040a;
+    --s1: rgba(13, 17, 23, 0.88);
+    --b: rgba(0, 229, 255, 0.12);
+    --c: #00e5ff;
+    --c2: #7c3aed;
+    --r: #ff4d6d;
+    --t: #e2e8f0;
+    --m: #64748b;
+    --fn: 'Syne', sans-serif;
+    --fd: 'Orbitron', sans-serif;
+    --fm: 'JetBrains Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg);
+    color: var(--t);
+    font-family: var(--fn);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#cvs { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+.login-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 400px;
+    background: var(--s1);
+    backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--b);
+    border-radius: 24px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+}
+
+.login-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 15%; right: 15%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--c), transparent);
+    opacity: 0.5;
+}
+
+.logo {
+    font-family: var(--fd);
+    font-size: 24px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff, var(--c));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+}
+
+.sub-logo {
+    font-family: var(--fm);
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--m);
+    text-transform: uppercase;
+    margin-bottom: 32px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.label {
+    display: block;
+    font-family: var(--fm);
+    font-size: 11px;
+    color: var(--c);
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+input {
+    width: 100%;
+    background: rgba(0,0,0,0.3);
+    border: 1.5px solid var(--b);
+    border-radius: 12px;
+    color: #fff;
+    font-family: var(--fm);
+    padding: 14px 18px;
+    outline: none;
+    transition: all 0.25s;
+}
+
+input:focus {
+    border-color: var(--c);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+}
+
+.btn {
+    width: 100%;
+    background: var(--c);
+    color: #000;
+    border: none;
+    border-radius: 12px;
+    padding: 15px;
+    font-family: var(--fd);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: 0.3s;
+    margin-top: 10px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.4);
+}
+
+.err {
+    background: rgba(255, 77, 109, 0.1);
+    border: 1px solid rgba(255, 77, 109, 0.2);
+    color: var(--r);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    margin-bottom: 20px;
+    font-family: var(--fm);
+}
+
+</style>
+</head>
+<body>
+<canvas id="cvs"></canvas>
+
+<div class="login-card">
+    <div class="logo">ADMIN PORTAL</div>
+    <div class="sub-logo">// secure access restricted</div>
+
+    {% if error %}
+    <div class="err">✗ {{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+        <div class="form-group">
+            <label class="label">Username</label>
+            <input type="text" name="username" placeholder="Admin ID" required autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="label">Password</label>
+            <input type="password" name="password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn">Authenticate System</button>
+    </form>
+</div>
+
+<script>
+(function(){
+    const cvs=document.getElementById('cvs'),ctx=cvs.getContext('2d');let S=[];
+    function init(){cvs.width=innerWidth;cvs.height=innerHeight;S=Array.from({length:100},()=>({x:Math.random()*cvs.width,y:Math.random()*cvs.height,r:Math.random()*1.2+.2,v:Math.random()*.2+.05}))}
+    function draw(){ctx.clearRect(0,0,cvs.width,cvs.height);S.forEach(s=>{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(0,229,255,${.15+s.r*.1})`;ctx.fill();s.y+=s.v;if(s.y>cvs.height){s.y=0;s.x=Math.random()*cvs.width}});requestAnimationFrame(draw)}
+    window.addEventListener('resize',init);init();draw();
+})();
+</script>
+</body>
+</html>
