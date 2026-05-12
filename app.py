@@ -38,11 +38,11 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION
+# CONFIGURATION (Railway Environment Variables)
 # ─────────────────────────────────────────────────────────────────────────────
 API_KEY    = os.getenv("APICOID_API_KEY", "")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")
+ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")  # Mengambil 'ADMIN_SECRET' dari Railway
 
 # Endpoint resmi api.co.id (GET + header x-api-co-id)
 API_ENDPOINT = "https://use.api.co.id/validation/bank"
