@@ -52,7 +52,7 @@ ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")  # Mengambil 'ADMIN_SECRET' d
 # Endpoint resmi api.co.id (GET + header x-api-co-id)
 API_ENDPOINT = "https://use.api.co.id/validation/bank"
 
-MAX_WORKERS     = 15
+MAX_WORKERS     = 10
 REQUEST_TIMEOUT = 30
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
 
@@ -329,54 +329,53 @@ class APIResult:
         self.is_system_error = is_system_error
 
 def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_name: str = "") -> Optional[APIResult]:
-    """Internal caller ke api.co.id"""
-    try:
-        # Jika account_name kosong, JANGAN dikirimkan parameternya.
-        params = {"bank_code": bank_code, "account_number": account_no}
-        if account_name:
-            params["account_name"] = account_name
+    """Internal caller ke api.co.id dengan proteksi Rate Limit."""
+    for attempt in range(2):
+        try:
+            if attempt > 0: time.sleep(1) # Jeda jika retry
+            
+            params = {"bank_code": bank_code, "account_number": account_no}
+            if account_name:
+                params["account_name"] = account_name
 
-        resp = sess.get(
-            API_ENDPOINT,
-            params=params,
-            headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT
-        )
-        
-        if resp.status_code == 401: return APIResult(error="API Key Invalid", is_system_error=True)
-        if resp.status_code == 402: return APIResult(error="Saldo API Habis", is_system_error=True)
-        if resp.status_code == 429: return None
-        if resp.status_code != 200: return None
+            resp = sess.get(
+                API_ENDPOINT,
+                params=params,
+                headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
+                timeout=REQUEST_TIMEOUT,
+            )
+            
+            if resp.status_code == 429: # Terlalu cepat
+                time.sleep(2)
+                continue
+                
+            if resp.status_code != 200:
+                return APIResult(error=f"HTTP {resp.status_code}", is_system_error=True)
 
-        body = resp.json()
-        if not body.get("is_success"):
-            msg = body.get("message", "Unknown error")
-            # Jika error soal bank_code ATAU rekening tidak ditemukan, 
-            # jangan menyerah dulu, coba format bank lain (misal dari bank_bca ke bca)
-            retry_keywords = ("bank_code", "invalid", "not supported", "tidak ditemukan", "not found")
-            if any(kw in msg.lower() for kw in retry_keywords):
-                return None
-            return APIResult(error=msg)
+            body = resp.json()
+            if not body.get("is_success"):
+                return APIResult(error=body.get("message", "Gagal"))
 
-        data = body.get("data") or {}
-        name = data.get("name") or data.get("account_name")
-        
-        if not name:
-            return APIResult(error="Rekening tidak ditemukan")
+            data = body.get("data") or {}
+            name = data.get("name") or data.get("account_name")
+            
+            if not name:
+                return APIResult(error="Rekening tidak ditemukan atau nama terlalu berbeda")
 
-        return APIResult(
-            ok=True, 
-            name=name, 
-            is_valid=bool(data.get("is_valid")), 
-            score=float(data.get("score") or 0)
-        )
+            return APIResult(
+                ok=True, 
+                name=name, 
+                is_valid=bool(data.get("is_valid")), 
+                score=float(data.get("score") or 0)
+            )
 
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-        log.warning(f"API Timeout/Connection Error: {bank_code} {account_no}")
-        return None # Return None agar bisa di-retry dengan format lain
-    except Exception as e:
-        log.error(f"API Error: {e}")
-        return None
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            log.warning("API Timeout/Conn Error (Attempt %d)", attempt + 1)
+            continue
+        except Exception as e:
+            log.error("API critical error: %s", e)
+            return None
+    return None
 
 def check_account(account_no: str, bank_raw: str, account_name: str = "") -> APIResult:
     """
@@ -400,7 +399,7 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
         for extra in ["CENTRAL_ASIA", "bank_central_asia", "BCA_DIGITAL", "DIGITAL_BCA"]:
             if extra not in formats: formats.append(extra)
 
-    last_error = "Rekening tidak ditemukan"
+    last_error = "Rekening tidak ditemukan atau nama terlalu berbeda"
     
     # TAHAP 1: Cek tanpa nama hint (Strategi pancing nama asli)
     # Kita coba semua format satu per satu sampai dapat nama yang paling "bersih" (tanpa bintang jika mungkin)
@@ -434,6 +433,8 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
 # ─────────────────────────────────────────────────────────────────────────────
 
 def process_row(index: int, row: dict) -> dict:
+    # Jeda mikro agar tidak overload API
+    time.sleep(0.2)
     nama     = str(row.get("nama", "")).strip()
     rekening = sanitize_account(row.get("rekening", ""))
     bank     = str(row.get("bank", "")).strip()
@@ -456,7 +457,7 @@ def process_row(index: int, row: dict) -> dict:
         if result.is_system_error:
             return {**base, "nama_bank": f"⚠ {result.error}", "hasil": "ERROR"}
         # Rekening definitif tidak ada, tampilkan pesan dari API agar transparan
-        api_err = result.error if result.error else "Tidak Ditemukan"
+        api_err = result.error if result.error else "Rekening tidak ditemukan atau nama terlalu berbeda"
         return {**base, "nama_bank": f"API: {api_err}", "hasil": "TIDAK VALID"}
 
     nama_bank = result.account_name
