@@ -34,11 +34,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("validator")
 
-# Pastikan folder template terbaca sempurna di Railway
+# Strategi Cerdas: Cari template di folder 'templates' DAN folder utama (Root)
+# Ini menjamin website tetap jalan meskipun susunan folder berubah saat deploy
 base_dir = os.path.dirname(os.path.abspath(__file__))
 template_dir = os.path.join(base_dir, "templates")
 
-app = Flask(__name__, template_folder=template_dir)
+app = Flask(__name__, template_folder=[template_dir, base_dir])
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
