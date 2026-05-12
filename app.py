@@ -39,7 +39,7 @@ log = logging.getLogger("validator")
 base_dir = os.path.dirname(os.path.abspath(__file__))
 template_dir = os.path.join(base_dir, "templates")
 
-app = Flask(__name__, template_folder=[template_dir, base_dir])
+app = Flask(__name__, template_folder=template_dir)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,13 +64,16 @@ _lock  = threading.RLock()
 
 try:
     import redis as _redis_lib  # type: ignore
-    _ru = os.getenv("REDIS_URL", "")
+    # Mendukung REDIS_URL atau REDISURL (variasi Railway)
+    _ru = os.getenv("REDIS_URL") or os.getenv("REDISURL")
     if _ru:
-        _redis = _redis_lib.from_url(_ru, decode_responses=True, socket_timeout=3)
+        _redis = _redis_lib.from_url(_ru, decode_responses=True, socket_timeout=5)
         _redis.ping()
-        log.info("Quota store: Redis ✓")
+        log.info("🚀 QUOTA STORE: Connected to Redis successfully!")
+    else:
+        log.warning("⚠ QUOTA STORE: REDIS_URL not found, using local JSON fallback.")
 except Exception as exc:
-    log.warning("Quota store: Redis tidak tersedia (%s) → pakai JSON lokal", exc)
+    log.error("❌ QUOTA STORE: Redis Connection Failed (%s) -> using local JSON", exc)
 
 
 def _codes_read() -> dict:
@@ -646,24 +649,14 @@ def login_required(f):
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    try:
-        if request.method == "POST":
-            user = request.form.get("username")
-            pwd  = request.form.get("password")
-            if user == ADMIN_USER and pwd == ADMIN_PWD:
-                session["logged_in"] = True
-                return redirect(url_for("admin_panel"))
-            return render_template("login.html", error="Username atau Password salah")
-        return render_template("login.html")
-    except Exception as e:
-        # Investigasi: lihat apa saja file yang ada di server
-        try:
-            files = os.listdir(base_dir)
-            t_files = os.listdir(template_dir) if os.path.exists(template_dir) else "FOLDER TEMPLATES TIDAK ADA"
-            debug_info = f"Error: {str(e)} | BaseDir: {base_dir} | Files: {files} | TemplateFiles: {t_files}"
-        except:
-            debug_info = f"Error: {str(e)}"
-        return f"DEBUG ERROR: {debug_info}", 500
+    if request.method == "POST":
+        user = request.form.get("username")
+        pwd  = request.form.get("password")
+        if user == ADMIN_USER and pwd == ADMIN_PWD:
+            session["logged_in"] = True
+            return redirect(url_for("admin_panel"))
+        return render_template("login.html", error="Username atau Password salah")
+    return render_template("login.html")
 
 
 @app.route("/admin/logout")
