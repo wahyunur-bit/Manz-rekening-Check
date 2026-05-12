@@ -301,7 +301,10 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
         body = resp.json()
         if not body.get("is_success"):
             msg = body.get("message", "Unknown error")
-            if any(kw in msg.lower() for kw in ("bank_code", "invalid", "not supported")):
+            # Jika error soal bank_code ATAU rekening tidak ditemukan, 
+            # jangan menyerah dulu, coba format bank lain (misal dari bank_bca ke bca)
+            retry_keywords = ("bank_code", "invalid", "not supported", "tidak ditemukan", "not found")
+            if any(kw in msg.lower() for kw in retry_keywords):
                 return None
             return APIResult(error=msg)
 
@@ -332,7 +335,12 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
 
     sess = get_session()
     short, full = sanitize_bank(bank_raw)
-    formats = [full, short] if full != short else [full]
+    
+    # Coba variasi format: bank_bca, bca, dan BCA (Capital)
+    formats = []
+    if full not in formats: formats.append(full)
+    if short not in formats: formats.append(short)
+    if short.upper() not in formats: formats.append(short.upper())
 
     last_error = "Rekening tidak ditemukan"
     
