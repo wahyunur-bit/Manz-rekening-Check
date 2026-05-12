@@ -388,33 +388,29 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
     sess = get_session()
     short, full = sanitize_bank(bank_raw)
     
-    # Coba variasi format: bank_bca, bca, dan BCA (Capital)
+    # Coba variasi format: BCA (Capital) dulu, baru bca, baru bank_bca
     formats = []
-    if full not in formats: formats.append(full)
-    if short not in formats: formats.append(short)
     if short.upper() not in formats: formats.append(short.upper())
+    if short not in formats: formats.append(short)
+    if full not in formats: formats.append(full)
     
-    # Tambahan khusus untuk BCA (beberapa API butuh nama lengkap atau format digital)
+    # Tambahan khusus untuk BCA
     if "bca" in short.lower():
         for extra in ["CENTRAL_ASIA", "bank_central_asia", "BCA_DIGITAL", "DIGITAL_BCA"]:
             if extra not in formats: formats.append(extra)
 
     last_error = "Rekening tidak ditemukan atau nama terlalu berbeda"
     
-    # TAHAP 1: Cek tanpa nama hint (Strategi pancing nama asli)
-    # Kita coba semua format satu per satu sampai dapat nama yang paling "bersih" (tanpa bintang jika mungkin)
+    # TAHAP 1: Cek tanpa nama hint
     best_res = None
     for fmt in formats:
         res = _call_api(sess, fmt, account_no, "")
         if res and res.ok:
-            # Jika dapat nama tanpa bintang, langsung kembalikan (Ini jackpot!)
-            if "*" not in res.account_name:
-                return res
-            # Simpan yang terbaik (yang ada namanya meskipun berbintang)
+            if "*" not in res.account_name: return res
             if not best_res or (len(res.account_name) > len(best_res.account_name)):
                 best_res = res
-        if res and res.is_system_error: return res
-        if res: last_error = res.error
+        # Jika error (seperti HTTP 400), JANGAN STOP, lanjut ke format berikutnya
+        continue
 
     if best_res: return best_res
 
@@ -423,7 +419,8 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
         for fmt in formats:
             res = _call_api(sess, fmt, account_no, account_name)
             if res and res.ok: return res
-            if res: last_error = res.error
+            # Lanjut terus jika gagal
+            continue
 
     return APIResult(error=last_error)
 
