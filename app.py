@@ -75,6 +75,24 @@ try:
 except Exception as exc:
     log.error("❌ QUOTA STORE: Redis Connection Failed (%s) -> using local JSON", exc)
 
+def _migrate_to_redis():
+    """Pindahkan data dari JSON ke Redis jika Redis baru aktif & masih kosong."""
+    if not _redis: return
+    try:
+        # Cek apakah Redis sudah ada isinya
+        if not _redis.keys("q:*"):
+            local_data = _codes_read()
+            if local_data:
+                log.info("🚚 MIGRATING: Found %d codes in local JSON. Moving to Redis...", len(local_data))
+                for code, q in local_data.items():
+                    _redis.set(f"q:{code.upper()}", q)
+                log.info("✅ MIGRATION: Success!")
+    except Exception as e:
+        log.error("❌ MIGRATION: Failed (%s)", e)
+
+# Jalankan migrasi saat startup
+_migrate_to_redis()
+
 
 def _codes_read() -> dict:
     try:
