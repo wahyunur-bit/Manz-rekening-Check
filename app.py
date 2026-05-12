@@ -34,7 +34,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("validator")
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
