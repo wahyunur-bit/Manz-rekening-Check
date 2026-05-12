@@ -270,129 +270,85 @@ def sanitize_bank(raw: str) -> tuple[str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class APIResult:
-    """Typed result dari API call."""
-    __slots__ = ("account_name", "is_valid", "score", "error", "is_system_error")
-
-    def __init__(
-        self,
-        *,
-        account_name: str = "",
-        is_valid: bool = False,
-        score: float = 0.0,
-        error: str = "",
-        is_system_error: bool = False,
-    ):
-        self.account_name   = account_name
-        self.is_valid       = is_valid
-        self.score          = score
-        self.error          = error
+    def __init__(self, ok=False, name="", is_valid=False, score=0.0, error="", is_system_error=False):
+        self.ok = ok
+        self.account_name = name
+        self.is_valid = is_valid
+        self.score = score
+        self.error = error
         self.is_system_error = is_system_error
 
-    @property
-    def ok(self) -> bool:
-        return not self.error
-
-
-def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_name: str) -> Optional[APIResult]:
-    """
-    GET https://use.api.co.id/validation/bank
-    Return: APIResult jika definitif, None jika perlu coba format lain.
-    """
+def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_name: str = "") -> Optional[APIResult]:
+    """Internal caller ke api.co.id"""
     try:
+        # Jika account_name kosong, JANGAN dikirimkan parameternya.
+        params = {"bank_code": bank_code, "account_number": account_no}
+        if account_name:
+            params["account_name"] = account_name
+
         resp = sess.get(
             API_ENDPOINT,
-            params={
-                "bank_code":      bank_code,
-                "account_number": account_no,
-                "account_name":   account_name,
-            },
-            headers={
-                "x-api-co-id": API_KEY,
-                "Accept":      "application/json",
-            },
-            timeout=REQUEST_TIMEOUT,
+            params=params,
+            headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT
         )
-        log.info("[API] %s | %s | HTTP %d | %s", bank_code, account_no, resp.status_code, resp.text[:150])
-
-        if resp.status_code == 401:
-            return APIResult(error="API Key tidak valid (401)", is_system_error=True)
-        if resp.status_code == 402:
-            return APIResult(error="Saldo api.co.id habis (402). Top-up di dashboard.", is_system_error=True)
-        if resp.status_code == 429:
-            time.sleep(2)
-            return None
-        if resp.status_code != 200:
-            return None
+        
+        if resp.status_code == 401: return APIResult(error="API Key Invalid", is_system_error=True)
+        if resp.status_code == 402: return APIResult(error="Saldo API Habis", is_system_error=True)
+        if resp.status_code == 429: return None
+        if resp.status_code != 200: return None
 
         body = resp.json()
-
         if not body.get("is_success"):
-            msg = body.get("message", "")
+            msg = body.get("message", "Unknown error")
             if any(kw in msg.lower() for kw in ("bank_code", "invalid", "not supported")):
-                return None  # Format bank salah, coba format lain
-            return APIResult(error=msg or "API Error")
+                return None
+            return APIResult(error=msg)
 
-        inner = body.get("data") or {}
-        name   = inner.get("name") or inner.get("account_name")
-        valid  = bool(inner.get("is_valid"))
-        score  = float(inner.get("score") or 0)
-        api_msg = inner.get("message") or body.get("message") or "Rekening tidak ditemukan"
+        data = body.get("data") or {}
+        name = data.get("name") or data.get("account_name")
+        
+        if not name:
+            return APIResult(error="Rekening tidak ditemukan")
 
-        if valid or name:
-            return APIResult(
-                account_name=str(name or "").strip(),
-                is_valid=valid,
-                score=score,
-            )
+        return APIResult(
+            ok=True, 
+            name=name, 
+            is_valid=bool(data.get("is_valid")), 
+            score=float(data.get("score") or 0)
+        )
 
-        # is_valid=false + name=null
-        # Mengembalikan error spesifik dari API agar transparan
-        return APIResult(error=api_msg, is_system_error=False)
-
-    except requests.exceptions.Timeout:
-        log.warning("[API] Timeout: %s %s", bank_code, account_no)
+    except Exception as e:
+        log.error(f"API Error: {e}")
         return None
-    except Exception as exc:
-        log.warning("[API] Exception: %s", exc)
-        return None
-
 
 def check_account(account_no: str, bank_raw: str, account_name: str = "") -> APIResult:
     """
-    Validasi rekening via api.co.id.
-    Coba format: bank_bca → bca secara berurutan.
+    Strategi Final:
+    1. Ambil data MURNI (Tanpa Nama Hint) -> Ini kunci agar tidak 'Validation failed'.
+    2. Jika TAHAP 1 gagal, baru coba pakai Nama Hint sebagai cadangan.
     """
-    if not API_KEY:
-        return APIResult(error="APICOID_API_KEY belum di-set!", is_system_error=True)
+    if not API_KEY: return APIResult(error="API Key belum di-set", is_system_error=True)
 
     sess = get_session()
     short, full = sanitize_bank(bank_raw)
-
-    # Coba full format dulu (bank_bca), lalu short (bca)
     formats = [full, short] if full != short else [full]
 
     last_error = "Rekening tidak ditemukan"
     
-    # Tahap 1: Coba semua format dengan hint Nama
+    # TAHAP 1: Cek tanpa nama hint (Paling Ampuh)
     for fmt in formats:
-        res = _call_api(sess, fmt, account_no, account_name)
-        if res is None:
-            continue
-        if res.is_system_error:
-            return res
-        if res.ok:
-            return res
-        last_error = res.error
+        res = _call_api(sess, fmt, account_no, "")
+        if res and res.ok: return res
+        if res and res.is_system_error: return res
+        if res: last_error = res.error
 
-    # Tahap 2: Fallback — Coba tanpa hint Nama (Seringkali memperbaiki 'Validation failed')
-    # Jika gagal dengan nama, coba ambil data mentah tanpa parameter nama.
+    # TAHAP 2: Jika Tahap 1 gagal, coba dengan nama hint
     if account_name:
         for fmt in formats:
-            res = _call_api(sess, fmt, account_no, "")
-            if res and res.ok:
-                return res
-            if res and res.is_system_error:
-                return res
+            res = _call_api(sess, fmt, account_no, account_name)
+            if res and res.ok: return res
+            if res: last_error = res.error
 
     return APIResult(error=last_error)
 
