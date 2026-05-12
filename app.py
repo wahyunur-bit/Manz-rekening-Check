@@ -655,8 +655,14 @@ def admin_login():
             return render_template("login.html", error="Username atau Password salah")
         return render_template("login.html")
     except Exception as e:
-        # Tampilkan error asli di browser untuk debugging
-        return f"DEBUG ERROR: {str(e)}", 500
+        # Investigasi: lihat apa saja file yang ada di server
+        try:
+            files = os.listdir(base_dir)
+            t_files = os.listdir(template_dir) if os.path.exists(template_dir) else "FOLDER TEMPLATES TIDAK ADA"
+            debug_info = f"Error: {str(e)} | BaseDir: {base_dir} | Files: {files} | TemplateFiles: {t_files}"
+        except:
+            debug_info = f"Error: {str(e)}"
+        return f"DEBUG ERROR: {debug_info}", 500
 
 
 @app.route("/admin/logout")
