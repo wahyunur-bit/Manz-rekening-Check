@@ -48,7 +48,7 @@ ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")  # Mengambil 'ADMIN_SECRET' d
 API_ENDPOINT = "https://use.api.co.id/validation/bank"
 
 MAX_WORKERS     = 4
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 60
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ def api_health_check(force: bool = False) -> tuple[bool, str]:
             resp = sess.get(
                 API_ENDPOINT + "/available",
                 headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
-                timeout=15,
+                timeout=60,
             )
             log.info("[HEALTH] HTTP %d | %s", resp.status_code, resp.text[:150])
 
@@ -321,6 +321,9 @@ def _call_api(sess: requests.Session, bank_code: str, account_no: str, account_n
             score=float(data.get("score") or 0)
         )
 
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+        log.warning(f"API Timeout/Connection Error: {bank_code} {account_no}")
+        return None # Return None agar bisa di-retry dengan format lain
     except Exception as e:
         log.error(f"API Error: {e}")
         return None
@@ -341,6 +344,11 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
     if full not in formats: formats.append(full)
     if short not in formats: formats.append(short)
     if short.upper() not in formats: formats.append(short.upper())
+    
+    # Tambahan khusus untuk BCA (beberapa API butuh nama lengkap)
+    if "bca" in short.lower():
+        for extra in ["CENTRAL_ASIA", "bank_central_asia"]:
+            if extra not in formats: formats.append(extra)
 
     last_error = "Rekening tidak ditemukan"
     
@@ -366,6 +374,8 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
 # ─────────────────────────────────────────────────────────────────────────────
 
 def process_row(index: int, row: dict) -> dict:
+    # Jeda kecil agar tidak membombardir API secara bersamaan (mencegah timeout)
+    time.sleep(0.1)
     nama     = str(row.get("nama", "")).strip()
     rekening = sanitize_account(row.get("rekening", ""))
     bank     = str(row.get("bank", "")).strip()
@@ -588,7 +598,7 @@ def supported_banks():
         resp = requests.get(
             "https://use.api.co.id/validation/bank/available",
             headers={"x-api-co-id": API_KEY, "Accept": "application/json"},
-            timeout=15,
+            timeout=30, # Naikkan ke 30 detik
         )
         if resp.status_code == 200:
             body = resp.json()
