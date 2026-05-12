@@ -298,10 +298,75 @@ td {
 
 <script>
 (function(){
-    const cvs=document.getElementById('cvs'),ctx=cvs.getContext('2d');let S=[];
-    function init(){cvs.width=innerWidth;cvs.height=innerHeight;S=Array.from({length:80},()=>({x:Math.random()*cvs.width,y:Math.random()*cvs.height,r:Math.random()*1.2+.2,v:Math.random()*.15+.05}))}
-    function draw(){ctx.clearRect(0,0,cvs.width,cvs.height);S.forEach(s=>{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(0,229,255,${.1+s.r*.05})`;ctx.fill();s.y+=s.v;if(s.y>cvs.height){s.y=0;s.x=Math.random()*cvs.width}});requestAnimationFrame(draw)}
-    window.addEventListener('resize',init);init();draw();
+    const cvs = document.getElementById('cvs'), ctx = cvs.getContext('2d');
+    let S = [], mouse = {x: -1000, y: -1000, active: false};
+
+    function init() {
+        cvs.width = window.innerWidth;
+        cvs.height = window.innerHeight;
+        S = Array.from({length: 120}, () => ({
+            x: Math.random() * cvs.width,
+            y: Math.random() * cvs.height,
+            r: Math.random() * 1.5 + 0.4,
+            v: Math.random() * 0.2 + 0.1,
+            a: Math.random() * Math.PI * 2
+        }));
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        if(mouse.active) {
+            const grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 160);
+            grad.addColorStop(0, 'rgba(0, 229, 255, 0.12)');
+            grad.addColorStop(0.6, 'rgba(124, 58, 237, 0.05)');
+            grad.addColorStop(1, 'transparent');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 160, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 2, 0, Math.PI*2);
+            ctx.fillStyle = '#00e5ff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00e5ff';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        S.forEach(s => {
+            let dx = mouse.x - s.x;
+            let dy = mouse.y - s.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if(dist < 220 && mouse.active) {
+                let force = (220 - dist) / 220;
+                s.x += dx * force * 0.04;
+                s.y += dy * force * 0.04;
+            }
+
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(0, 229, 255, ${0.2 + s.r * 0.2})`;
+            ctx.fill();
+
+            s.y += s.v;
+            s.x += Math.sin(s.a) * 0.1;
+            s.a += 0.01;
+
+            if (s.y > cvs.height) { s.y = -10; s.x = Math.random() * cvs.width; }
+        });
+        requestAnimationFrame(draw);
+    }
+
+    window.addEventListener('mousemove', e => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        mouse.active = true;
+    });
+    window.addEventListener('mouseleave', () => { mouse.active = false; });
+    window.addEventListener('resize', init);
+    init(); draw();
 })();
 
 async function loadAll() {
