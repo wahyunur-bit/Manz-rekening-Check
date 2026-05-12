@@ -34,7 +34,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("validator")
 
-app = Flask(__name__, template_folder="templates")
+# Pastikan folder template terbaca sempurna di Railway
+base_dir = os.path.dirname(os.path.abspath(__file__))
+template_dir = os.path.join(base_dir, "templates")
+
+app = Flask(__name__, template_folder=template_dir)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "manz-validator-pro-2024")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -641,14 +645,18 @@ def login_required(f):
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    if request.method == "POST":
-        user = request.form.get("username")
-        pwd  = request.form.get("password")
-        if user == ADMIN_USER and pwd == ADMIN_PWD:
-            session["logged_in"] = True
-            return redirect(url_for("admin_panel"))
-        return render_template("login.html", error="Username atau Password salah")
-    return render_template("login.html")
+    try:
+        if request.method == "POST":
+            user = request.form.get("username")
+            pwd  = request.form.get("password")
+            if user == ADMIN_USER and pwd == ADMIN_PWD:
+                session["logged_in"] = True
+                return redirect(url_for("admin_panel"))
+            return render_template("login.html", error="Username atau Password salah")
+        return render_template("login.html")
+    except Exception as e:
+        # Tampilkan error asli di browser untuk debugging
+        return f"DEBUG ERROR: {str(e)}", 500
 
 
 @app.route("/admin/logout")
