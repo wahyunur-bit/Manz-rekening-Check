@@ -52,8 +52,8 @@ ADMIN_PWD  = os.getenv("ADMIN_SECRET", "admin123")  # Mengambil 'ADMIN_SECRET' d
 # Endpoint resmi api.co.id (GET + header x-api-co-id)
 API_ENDPOINT = "https://use.api.co.id/validation/bank"
 
-MAX_WORKERS     = 4
-REQUEST_TIMEOUT = 60
+MAX_WORKERS     = 15
+REQUEST_TIMEOUT = 30
 CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codes.json")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -434,8 +434,6 @@ def check_account(account_no: str, bank_raw: str, account_name: str = "") -> API
 # ─────────────────────────────────────────────────────────────────────────────
 
 def process_row(index: int, row: dict) -> dict:
-    # Jeda kecil agar tidak membombardir API secara bersamaan (mencegah timeout)
-    time.sleep(0.1)
     nama     = str(row.get("nama", "")).strip()
     rekening = sanitize_account(row.get("rekening", ""))
     bank     = str(row.get("bank", "")).strip()
